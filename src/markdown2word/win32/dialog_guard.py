@@ -32,6 +32,8 @@ class MathTypeInlineDialogGuard:
     """Click only MathType's inline-style choice while a conversion is active."""
 
     BM_CLICK = 0x00F5
+    MOUSEEVENTF_LEFTDOWN = 0x0002
+    MOUSEEVENTF_LEFTUP = 0x0004
 
     def __init__(self, on_click: Callable[[str], None] | None = None) -> None:
         self.on_click = on_click
@@ -52,6 +54,11 @@ class MathTypeInlineDialogGuard:
             self._user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
             self._user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
             self._user32.IsWindow.argtypes = [wintypes.HWND]
+            self._user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+            self._user32.GetCursorPos.argtypes = [ctypes.POINTER(wintypes.POINT)]
+            self._user32.SetCursorPos.argtypes = [ctypes.c_int, ctypes.c_int]
+            self._user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+            self._user32.mouse_event.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p]
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -83,6 +90,35 @@ class MathTypeInlineDialogGuard:
 
         def dialog_still_open(hwnd: int) -> bool:
             return bool(self._user32.IsWindow(hwnd)) and is_inline_dialog_title(self._window_text(hwnd))
+
+        def physical_click(hwnd: int, target: int | None = None) -> bool:
+            # This is the verified legacy path recovered from the original
+            # project session: focus the exact MathType dialog, move to the
+            # inline-choice control (or its stable fallback position), issue a
+            # real mouse click, and restore the user's cursor position.
+            rect = wintypes.RECT()
+            rect_target = target or hwnd
+            if not self._user32.GetWindowRect(rect_target, ctypes.byref(rect)):
+                return False
+            if target:
+                x = (rect.left + rect.right) // 2
+                y = (rect.top + rect.bottom) // 2
+            else:
+                x = (rect.left + rect.right) // 2
+                y = rect.top + round((rect.bottom - rect.top) * 0.66)
+            old_pos = wintypes.POINT()
+            self._user32.GetCursorPos(ctypes.byref(old_pos))
+            self._user32.SetForegroundWindow(hwnd)
+            self._stop.wait(0.05)
+            if not dialog_still_open(hwnd):
+                return True
+            self._user32.SetCursorPos(x, y)
+            self._user32.mouse_event(self.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, None)
+            self._user32.mouse_event(self.MOUSEEVENTF_LEFTUP, 0, 0, 0, None)
+            self._stop.wait(0.08)
+            self._user32.SetCursorPos(old_pos.x, old_pos.y)
+            self.last_click_method = "physical fallback"
+            return not dialog_still_open(hwnd)
 
         @self._enum_callback_type
         def enum_window(hwnd, _):
@@ -118,7 +154,9 @@ class MathTypeInlineDialogGuard:
                         self.last_click_method = "BM_CLICK"
                         clicked = True
                         return False
-
+                clicked = physical_click(hwnd, matching_child)
+            else:
+                clicked = physical_click(hwnd)
             return not clicked
 
         self._user32.EnumWindows(enum_window, 0)

@@ -201,7 +201,7 @@ class Markdown2WordApp(tk.Tk):
         self._append_log("\n============================================================\n")
         self._append_log(f"开始转换：{config.markdown}\n输出文件：{config.output}\n")
         if config.convert_formulas:
-            # Backend UI Automation handles dialogs without moving the mouse.
+            self.dialog_guard.start()
             self._append_log("GUI MathType 行内公式弹窗保护已启动。\n")
         self.worker = threading.Thread(target=self._run_worker, args=(config,), daemon=True)
         self.worker.start()

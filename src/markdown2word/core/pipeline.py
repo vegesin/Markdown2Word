@@ -146,6 +146,7 @@ def build_commands(config: ConversionConfig) -> list[list[str]]:
             "-VisioDirectory", str(config.visio_directory),
             "-Stage1BackendDirectory", str(STAGE1_BACKEND),
             "-MathTypeBackendDirectory", str(MATHTYPE_BACKEND),
+            "-ExternalInlineDialogGuard",
             "-PythonPath", str(config.python),
             "-PandocPath", str(config.pandoc),
         ]
