@@ -1,0 +1,12 @@
+*.docx
+*.doc
+!src/markdown2word/backends/stage1/assets/default-template.docx
+__pycache__/
+*.py[cod]
+.venv/
+build/
+dist/
+*.egg-info/
+**.ini
+docs/old/**
+test**

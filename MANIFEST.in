@@ -1,0 +1,1 @@
+recursive-include src/markdown2word/backends *.ps1 *.lua *.docx
