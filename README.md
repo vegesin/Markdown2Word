@@ -1,8 +1,8 @@
 # Markdown2Word GUI
 
-Markdown2Word GUI 是一个面向 Windows 的独立桌面工具，用于把 Markdown 技术报告转换为套用指定 Word 模板的 DOCX，并继续完成 MathType 公式、公式编号和可选 Visio 流程图处理。
+Markdown2Word GUI 是一个面向 Windows 的独立桌面工具，用于把 Markdown 技术报告转换为套用指定 Word 模板的 DOCX，并继续完成 MathType 公式、公式编号和可选 Visio 流程图处理。用户通过图形界面选择文件和转换选项即可完成转换。
 
-本仓库不再按 Codex skill 组织。普通用户只通过图形界面选择文件和转换选项，不需要安装 skill，也不需要手工执行任何转换脚本。
+> **当前建议：不要勾选“将支持的 Mermaid 流程图转为可编辑 Visio 对象”。** Visio 自动转换仍为实验性功能，当前可能发生 Visio/Word COM 自动化失败，生成图的节点布局、连线和整体视觉效果也可能与 Markdown 中 Mermaid 的渲染结果明显不一致。未勾选时转换流程仍会正常完成，并在 Word 中保留流程图占位符，供后续人工处理。
 
 ## 主要功能
 
@@ -12,7 +12,7 @@ Markdown2Word GUI 是一个面向 Windows 的独立桌面工具，用于把 Mark
 - 识别 Markdown 中常见的 LaTeX 定界符；进入 Word/MathType 阶段时统一为行内 `$...$` 和行间 `\[...\]`，再转换为可编辑的 MathType `Equation.DSMT4` 对象。
 - 分别处理行内公式和行间公式，并自动应对表格公式触发的 MathType 行内/行间选择框。
 - 可为行间公式添加 MathType 原生右编号：`(1)`、`(1-1)` 或 `(1.1)`。
-- 提取 Mermaid 源码，并可选生成可编辑的 Visio 图形后嵌入 Word。
+- 识别 Mermaid 代码块并在 Word 中保留流程图占位符；可编辑 Visio 自动转换目前为实验性功能，暂不推荐启用。
 - 显示实时日志，保留阶段文件，支持取消和失败排查。
 
 ## 运行环境
@@ -26,7 +26,7 @@ Markdown2Word GUI 是一个面向 Windows 的独立桌面工具，用于把 Mark
 - MathType 6，已激活且 Word 加载项可用；
 - Python 包 `python-docx` 和 `lxml`。
 
-仅启用 Visio 转换时需要桌面版 Microsoft Visio。WPS 不能替代 Microsoft Word，因为公式转换依赖 Word COM 和 MathType Word 加载项。
+仅启用实验性的 Visio 转换时需要桌面版 Microsoft Visio。安装 Visio 并不代表自动转换一定成功，该功能还依赖当前桌面会话中的 Visio/Word COM 状态。WPS 不能替代 Microsoft Word，因为公式转换依赖 Word COM 和 MathType Word 加载项。
 
 ## 快速开始
 
@@ -47,7 +47,7 @@ python run_gui.py
 1. 选择 Markdown 文件。
 2. 选择 Word 模板；留空时使用程序自带模板。
 3. 选择输出 DOCX。
-4. 根据需要启用 MathType 转换、公式编号和 Visio 转换。
+4. 根据需要启用 MathType 转换和公式编号；当前建议不要勾选 Visio 自动转换。
 5. 点击“开始转换”，完成前不要操作正在自动化的 Word 或 MathType 窗口。
 
 ## 转换阶段
@@ -57,7 +57,7 @@ python run_gui.py
 1. Markdown 经 Pandoc 转换为 DOCX，并套用模板和文档格式。
 2. 在 Word 中从文档末尾向前逐个转换 LaTeX；启用编号时，每个行间公式转换完成后立即插入 MathType 原生编号，最后统一更新编号。
 
-Visio 是主文档转换后的可选处理：把支持的 Mermaid 流程图转换为可编辑 VSDX，并替换 Word 中对应的占位符。
+Visio 是主文档转换后的实验性可选处理：程序尝试把支持的 Mermaid 流程图转换为可编辑 VSDX，并替换 Word 中对应的占位符。该功能目前仍有 COM 稳定性和图形还原度问题，暂不推荐勾选。默认保持未勾选时，Word 中会保留 `[VISIO:diagram-NN]` 占位符，不影响其余正文、表格和公式的转换。
 
 程序不会修改 Markdown 原文或 Word 模板。默认保留下列中间结果：
 
@@ -81,7 +81,7 @@ Visio 是主文档转换后的可选处理：把支持的 Mermaid 流程图转�
 
 启用“添加公式编号”后，不再先生成一个完整的未编号 DOCX 再遍历编号。每个 `\[...\]` 转换成 MathType 对象后，程序立即执行 MathType 的直接调用宏 `MTCommand_InsertEqnNum`，在同一 `MTDisplayEquation` 段落右侧插入编号。全部公式完成后执行 `MTCommand_UpdateEqns` 更新整个文档。
 
-编号不是普通文本，也不是旧脚本使用的 `SEQ Equation`。它由 MathType 管理的 Word 域组成：外层是 `MACROBUTTON MTPlaceRef`，内部使用 `SEQ MTEqn`，因此可以继续使用 MathType 选项卡的格式化、更新、浏览和公式引用功能。
+编号不是普通文本，也不使用 `SEQ Equation`。它由 MathType 管理的 Word 域组成：外层是 `MACROBUTTON MTPlaceRef`，内部使用 `SEQ MTEqn`，因此可以继续使用 MathType 选项卡的格式化、更新、浏览和公式引用功能。
 
 GUI 编号格式与 MathType 格式串的对应关系如下：
 
@@ -155,7 +155,9 @@ GUI 会识别该窗口并选择 `Create Inline Style Equation`。日志应显示
 
 ### Mermaid 无法转换
 
-当前优先支持 `flowchart`/`graph` 的常用节点和 `-->` 连接。复杂子图、HTML 标签和高级样式应先简化，原始 `.mmd` 文件会保留供人工编辑。
+Visio 自动转换目前为实验性功能，暂不推荐勾选。已知问题包括 Visio/Word COM 调用可能失败，以及生成图的布局、节点尺寸、连线路径和 Mermaid 的浏览器渲染效果不一致。
+
+当前仅优先支持 `flowchart`/`graph` 的常用节点和 `-->` 连接，复杂子图、HTML 标签和高级样式无法可靠还原。建议保持 Visio 转换未勾选，让 Word 保留 `[VISIO:diagram-NN]` 占位符，再根据原始 Markdown 中的 Mermaid 代码人工绘制或插入流程图。只有勾选转换时才会创建 `*_visio_sources/`，并保留 `.mmd`、`manifest.json` 和已生成的 `.vsdx` 供排查或人工编辑。
 
 ## 后续重构方向
 
