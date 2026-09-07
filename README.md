@@ -63,7 +63,7 @@ Visio 是主文档转换后的可选处理：把支持的 Mermaid 流程图转�
 
 - `*_stage1_latex.docx`：已套模板、公式仍为 LaTeX 的文档；
 - 行间公式在转换为 MathType 对象后立即插入 MathType 原生编号，不再生成独立的 `*_mathtype_unnumbered.docx` 中间文件；
-- `*_visio_sources/`：Mermaid 源文件、清单及生成的 VSDX。
+- `*_visio_sources/`：仅在勾选“转换为可编辑 Visio 对象”时创建，包含 Mermaid 源文件、清单及生成的 VSDX；未勾选时 DOCX 只保留流程图占位符，不产生该目录。
 
 这些文件用于排查问题和从失败阶段恢复。
 

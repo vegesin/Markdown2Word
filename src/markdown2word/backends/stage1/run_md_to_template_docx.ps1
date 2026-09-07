@@ -15,7 +15,8 @@ param(
     [string]$BackendDirectory = $PSScriptRoot,
     [string]$PythonPath = "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe",
     [string]$PandocPath = "$env:LOCALAPPDATA\Pandoc\pandoc.exe",
-    [string]$VisioDirectory
+    [string]$VisioDirectory,
+    [switch]$WriteVisioSources
 )
 
 $ErrorActionPreference = "Stop"
@@ -72,9 +73,12 @@ $arguments += @(
     $PandocPath
 )
 
-if (-not [string]::IsNullOrWhiteSpace($VisioDirectory)) {
+if ($WriteVisioSources) {
+    if ([string]::IsNullOrWhiteSpace($VisioDirectory)) {
+        $VisioDirectory = [System.IO.Path]::Combine($outputDirectory, [System.IO.Path]::GetFileNameWithoutExtension($OutputPath) + "_visio_sources")
+    }
     $VisioDirectory = [System.IO.Path]::GetFullPath($VisioDirectory)
-    $arguments += @("--visio-dir", $VisioDirectory)
+    $arguments += @("--write-visio-sources", "--visio-dir", $VisioDirectory)
 }
 
 Write-Host "Markdown to template DOCX" -ForegroundColor Cyan
@@ -103,5 +107,5 @@ Write-Host "Success: $OutputPath" -ForegroundColor Green
     MarkdownPath = $MarkdownPath
     TemplatePath = if ($TemplatePath) { $TemplatePath } else { "bundled default template" }
     OutputPath = $OutputPath
-    VisioSources = if ($VisioDirectory) { $VisioDirectory } else { [System.IO.Path]::Combine($outputDirectory, [System.IO.Path]::GetFileNameWithoutExtension($OutputPath) + "_visio_sources") }
+    VisioSources = if ($WriteVisioSources) { $VisioDirectory } else { $null }
 }

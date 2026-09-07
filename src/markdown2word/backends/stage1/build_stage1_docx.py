@@ -39,6 +39,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--pandoc", default="pandoc")
     p.add_argument("--visio-dir", type=Path)
     p.add_argument(
+        "--write-visio-sources",
+        action="store_true",
+        help="Write Mermaid .mmd files and manifest.json for the optional Visio stage.",
+    )
+    p.add_argument(
         "--default-template",
         type=Path,
         default=Path(__file__).resolve().parent / "assets" / "default-template.docx",
@@ -54,8 +59,13 @@ def source_math_counts(text: str) -> tuple[int, int]:
     return len(INLINE_MATH_RE.findall(stripped)) + len(INLINE_PAREN_RE.findall(stripped)), len(displays)
 
 
-def extract_mermaid(text: str, output_dir: Path) -> tuple[str, list[dict[str, str]]]:
-    output_dir.mkdir(parents=True, exist_ok=True)
+def extract_mermaid(
+    text: str,
+    output_dir: Path,
+    write_sources: bool = False,
+) -> tuple[str, list[dict[str, str]]]:
+    if write_sources:
+        output_dir.mkdir(parents=True, exist_ok=True)
     manifest: list[dict[str, str]] = []
 
     def replace(match: re.Match[str]) -> str:
@@ -63,7 +73,8 @@ def extract_mermaid(text: str, output_dir: Path) -> tuple[str, list[dict[str, st
         diagram_id = f"diagram-{index:02d}"
         source_name = f"{diagram_id}.mmd"
         source = match.group(1).strip() + "\n"
-        (output_dir / source_name).write_text(source, encoding="utf-8")
+        if write_sources:
+            (output_dir / source_name).write_text(source, encoding="utf-8")
         manifest.append({
             "id": diagram_id,
             "placeholder": f"[VISIO:{diagram_id}]",
@@ -73,9 +84,10 @@ def extract_mermaid(text: str, output_dir: Path) -> tuple[str, list[dict[str, st
         return f"\n\n[VISIO:{diagram_id}]\n\n"
 
     replaced = MERMAID_RE.sub(replace, text)
-    (output_dir / "manifest.json").write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    if write_sources:
+        (output_dir / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
     return replaced, manifest
 
 
@@ -441,12 +453,12 @@ def main() -> int:
         raise FileNotFoundError(f"Word template path does not exist: {template}")
     output.parent.mkdir(parents=True, exist_ok=True)
     visio_dir = (args.visio_dir or output.with_name(output.stem + "_visio_sources")).resolve()
-    if visio_dir.exists():
+    if args.write_visio_sources and visio_dir.exists():
         shutil.rmtree(visio_dir)
 
     source = markdown.read_text(encoding="utf-8")
     source_inline, source_display = source_math_counts(source)
-    replaced, manifest = extract_mermaid(source, visio_dir)
+    replaced, manifest = extract_mermaid(source, visio_dir, args.write_visio_sources)
     replaced = normalize_display_math_blocks(replaced)
     lua_filter = Path(__file__).with_name("preserve_math.lua")
 
@@ -493,7 +505,8 @@ def main() -> int:
     package_audit = audit_docx(output)
     summary = {
         "output": str(output),
-        "visio_dir": str(visio_dir),
+        "visio_dir": str(visio_dir) if args.write_visio_sources else None,
+        "visio_sources_written": args.write_visio_sources,
         "source_inline_math": source_inline,
         "source_display_math": source_display,
         "docx_inline_latex": inline_count,

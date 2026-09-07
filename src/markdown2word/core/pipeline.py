@@ -143,7 +143,6 @@ def build_commands(config: ConversionConfig) -> list[list[str]]:
             "-MarkdownPath", str(config.markdown),
             "-OutputPath", str(config.output),
             "-Stage1Path", str(config.stage1_path),
-            "-VisioDirectory", str(config.visio_directory),
             "-Stage1BackendDirectory", str(STAGE1_BACKEND),
             "-MathTypeBackendDirectory", str(MATHTYPE_BACKEND),
             "-ExternalInlineDialogGuard",
@@ -158,6 +157,11 @@ def build_commands(config: ConversionConfig) -> list[list[str]]:
             command.append("-StartWordIfNeeded")
         if config.skip_text_integrity_check:
             command.append("-SkipTextIntegrityCheck")
+        if config.create_visio:
+            command += [
+                "-WriteVisioSources",
+                "-VisioDirectory", str(config.visio_directory),
+            ]
         if config.overwrite:
             command.append("-Force")
     else:
@@ -168,10 +172,14 @@ def build_commands(config: ConversionConfig) -> list[list[str]]:
             "-BackendDirectory", str(STAGE1_BACKEND),
             "-PythonPath", str(config.python),
             "-PandocPath", str(config.pandoc),
-            "-VisioDirectory", str(config.visio_directory),
         ]
         if config.template:
             command += ["-TemplatePath", str(config.template)]
+        if config.create_visio:
+            command += [
+                "-WriteVisioSources",
+                "-VisioDirectory", str(config.visio_directory),
+            ]
 
     commands = [command]
     if config.create_visio:

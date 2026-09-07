@@ -32,4 +32,4 @@ MathType is allowed to update these field results during `MTCommand_UpdateEqns`;
 
 ## Visio handoff
 
-Use the generated `manifest.json`. Generate one editable `.vsdx` for every `.mmd`, then replace the matching `[VISIO:diagram-NN]` paragraph in Word. Preserve any following figure-caption paragraph.
+Always replace Mermaid blocks with `[VISIO:diagram-NN]` in the Stage-1 DOCX. Only when Visio conversion is enabled, write the `.mmd` files and `manifest.json`, generate one editable `.vsdx` for every source, and replace the matching placeholder in Word. Preserve any following figure-caption paragraph. When Visio conversion is disabled, do not create or remove a `*_visio_sources` directory.
