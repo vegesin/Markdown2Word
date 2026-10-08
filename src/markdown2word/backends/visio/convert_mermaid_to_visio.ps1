@@ -96,7 +96,8 @@ function Parse-MermaidFlowchart {
             for ($i = 0; $i -lt 2; $i++) {
                 $shapeText = $shapes[$i]
                 if (-not $nodes.Contains($ids[$i])) {
-                    $nodes[$ids[$i]] = [pscustomobject]@{ Id=$ids[$i]; Shape=$shapeText; Text=$ids[$i] }
+                    $nodeText = if ($shapeText) { $shapeText.Trim('[',']','{','}','(',')') } else { $ids[$i] }
+                    $nodes[$ids[$i]] = [pscustomobject]@{ Id=$ids[$i]; Shape=$shapeText; Text=$nodeText }
                 } elseif (-not [string]::IsNullOrWhiteSpace($shapeText)) {
                     $nodes[$ids[$i]].Shape = $shapeText
                     $nodes[$ids[$i]].Text = $shapeText.Trim('[',']','{','}','(',')')
@@ -321,18 +322,20 @@ try {
     $stage = "open Basic Flowchart stencil"
     $stencil = Open-BasicFlowchartStencil -Visio $visio
     foreach ($item in $manifest) {
+        if ($env:M2W_CANCEL_FILE -and (Test-Path -LiteralPath $env:M2W_CANCEL_FILE)) { throw 'Conversion cancelled by user.' }
         $stage = "parse Mermaid source $($item.id)"
         $sourcePath = Join-Path $VisioDirectory ([string]$item.source)
         $source = Get-Content -LiteralPath $sourcePath -Raw -Encoding UTF8
         $model = Parse-MermaidFlowchart -Source $source
         if ($null -eq $model) {
             Write-Warning "Unsupported Mermaid type '$($item.diagram_type)' for $($item.id); placeholder retained. Currently supported: flowchart/graph."
+            Write-Host ('M2W_EVENT ' + (@{type='warning'; stage='visio'; message="Unsupported Mermaid type for $($item.id); placeholder retained."} | ConvertTo-Json -Compress))
             continue
         }
         $stage = "create editable VSDX $($item.id)"
         $vsdxPath = Join-Path $VisioDirectory ("{0}.vsdx" -f $item.id)
         New-VisioDiagram -Visio $visio -Stencil $stencil -Model $model -OutputPath $vsdxPath
-        $created.Add([pscustomobject]@{ Placeholder=[string]$item.placeholder; Path=$vsdxPath; Id=[string]$item.id })
+        $created.Add([pscustomobject]@{ Placeholder=[string]$item.placeholder; Bookmark=[string]$item.bookmark; Path=$vsdxPath; Id=[string]$item.id })
         Write-Host "Created editable Visio diagram: $vsdxPath" -ForegroundColor Green
     }
 
@@ -346,15 +349,13 @@ try {
     $stage = "open target Word document"
     $wordDocument = Invoke-ComWithRetry -Operation { $word.Documents.Open($DocxPath, $false, $false, $false) }
     foreach ($item in $created) {
+        if ($env:M2W_CANCEL_FILE -and (Test-Path -LiteralPath $env:M2W_CANCEL_FILE)) { throw 'Conversion cancelled by user.' }
         $stage = "find Word placeholder $($item.Placeholder)"
-        $range = $wordDocument.Content.Duplicate
-        $find = $range.Find
+        if (-not $wordDocument.Bookmarks.Exists($item.Bookmark)) { throw "Diagram bookmark not found: $($item.Bookmark)" }
+        $bookmark = $wordDocument.Bookmarks.Item($item.Bookmark)
+        $range = $bookmark.Range.Duplicate
         try {
-            $find.ClearFormatting()
-            $find.Text = $item.Placeholder
-            $find.Forward = $true
-            $find.Wrap = $wdFindStop
-            if (-not $find.Execute()) { throw "Word placeholder not found: $($item.Placeholder)" }
+            if ([string]$range.Text -cne $item.Placeholder) { throw "Diagram placeholder text changed: $($item.Id)" }
             $range.Text = ""
             $range.Collapse($wdCollapseEnd)
             $stage = "embed editable Visio object $($item.Id) into Word"
@@ -373,14 +374,15 @@ try {
                 )
             }
             try {
-                if ([double]$ole.Width -gt 430.0) {
+                $usableWidth = [double]$range.Sections.Item(1).PageSetup.PageWidth - [double]$range.Sections.Item(1).PageSetup.LeftMargin - [double]$range.Sections.Item(1).PageSetup.RightMargin
+                if ([double]$ole.Width -gt $usableWidth) {
                     $ole.LockAspectRatio = -1
-                    $ole.Width = 430.0
+                    $ole.Width = $usableWidth
                 }
             } finally { Release-ComObject $ole }
             Write-Host "Embedded editable Visio object: $($item.Id)" -ForegroundColor Green
         } finally {
-            Release-ComObject $find
+            Release-ComObject $bookmark
             Release-ComObject $range
         }
     }

@@ -1,170 +1,84 @@
-# Markdown2Word GUI
+# Markdown2Word
 
-Markdown2Word GUI 是一个面向 Windows 的独立桌面工具，用于把 Markdown 技术报告转换为套用指定 Word 模板的 DOCX，并继续完成 MathType 公式、公式编号和可选 Visio 流程图处理。用户通过图形界面选择文件和转换选项即可完成转换。
+面向 Windows 的端到端 Markdown 技术报告转换工具。选择 Markdown、可选 Word 模板和输出位置，即可生成最终 DOCX，支持可编辑公式、表格格式和图表题注。
 
-> **当前建议：不要勾选“将支持的 Mermaid 流程图转为可编辑 Visio 对象”。** Visio 自动转换仍为实验性功能，当前可能发生 Visio/Word COM 自动化失败，生成图的节点布局、连线和整体视觉效果也可能与 Markdown 中 Mermaid 的渲染结果明显不一致。未勾选时转换流程仍会正常完成，并在 Word 中保留流程图占位符，供后续人工处理。
+## 安装与启动
 
-## 主要功能
-
-- 选择 Markdown、Word 模板和输出文件，无需输入命令行路径。
-- 保留 Markdown 一至四级标题并映射 Word 模板样式。
-- 生成三线表、图注和表注，并使用 Word Caption/SEQ 域编号。
-- 识别 Markdown 中常见的 LaTeX 定界符；进入 Word/MathType 阶段时统一为行内 `$...$` 和行间 `\[...\]`，再转换为可编辑的 MathType `Equation.DSMT4` 对象。
-- 分别处理行内公式和行间公式，并自动应对表格公式触发的 MathType 行内/行间选择框。
-- 可为行间公式添加 MathType 原生右编号：`(1)`、`(1-1)` 或 `(1.1)`。
-- 识别 Mermaid 代码块并在 Word 中保留流程图占位符；可编辑 Visio 自动转换目前为实验性功能，暂不推荐启用。
-- 显示实时日志，保留阶段文件，支持取消和失败排查。
-
-## 运行环境
-
-必需组件：
-
-- Windows 10/11；
-- Python 3.10 或更高版本，并包含 Tkinter/Tcl-Tk；
-- Pandoc；
-- 桌面版 Microsoft Word；
-- MathType 6，已激活且 Word 加载项可用；
-- Python 包 `python-docx` 和 `lxml`。
-
-仅启用实验性的 Visio 转换时需要桌面版 Microsoft Visio。安装 Visio 并不代表自动转换一定成功，该功能还依赖当前桌面会话中的 Visio/Word COM 状态。WPS 不能替代 Microsoft Word，因为公式转换依赖 Word COM 和 MathType Word 加载项。
-
-## 快速开始
-
-安装 Python 依赖：
+需要 Python 3.10+ 和 Microsoft Edge WebView2 Runtime。新版桌面界面使用 pywebview + 本地 HTML/CSS/JavaScript，不再依赖 Tkinter。应用运行不需要 Node.js，也不需要启动前端开发服务器。在实际使用的环境中安装：
 
 ```powershell
-python -m pip install -e .
-```
-
-启动 GUI：
-
-```powershell
+conda activate pack_cpu
+python -m pip install -e ".[pandoc]"
 python run_gui.py
 ```
 
-启动后：
+`[pandoc]` 安装包含 Pandoc 可执行文件的 `pypandoc-binary`。已有系统 Pandoc 时可以执行 `python -m pip install -e .`。单独安装 `pypandoc` 不保证包含 Pandoc 程序。
 
-1. 选择 Markdown 文件。
-2. 选择 Word 模板；留空时使用程序自带模板。
-3. 选择输出 DOCX。
-4. 根据需要启用 MathType 转换和公式编号；当前建议不要勾选 Visio 自动转换。
-5. 点击“开始转换”，完成前不要操作正在自动化的 Word 或 MathType 窗口。
+工具使用启动程序的 Python，自动从 PATH、常见安装位置或 pypandoc 查找 Pandoc。高级设置允许指定路径并检测环境。
 
-## 转换阶段
+Windows 使用 Edge Chromium 渲染器，不降级到旧版 IE。缺少 WebView2 时需要安装 [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)。界面资源随 Python 包一起安装，无 CDN 和远程界面请求。
 
-完整任务的主文档转换分为两个阶段：
+## 使用
 
-1. Markdown 经 Pandoc 转换为 DOCX，并套用模板和文档格式。
-2. 在 Word 中从文档末尾向前逐个转换 LaTeX；启用编号时，每个行间公式转换完成后立即插入 MathType 原生编号，最后统一更新编号。
+1. 在“选择文档”卡片选择 Markdown、可选模板和输出 DOCX。
+2. 选择公式模式及是否覆盖已有输出。
+3. 点击“开始转换”，在结果卡片查看状态。完成后直接打开文档或所在文件夹；错误和警告在结果区显示。
 
-Visio 是主文档转换后的实验性可选处理：程序尝试把支持的 Mermaid 流程图转换为可编辑 VSDX，并替换 Word 中对应的占位符。该功能目前仍有 COM 稳定性和图形还原度问题，暂不推荐勾选。默认保持未勾选时，Word 中会保留 `[VISIO:diagram-NN]` 占位符，不影响其余正文、表格和公式的转换。
+界面使用浅色圆角卡片和蓝色主操作，支持深色主题。宽窗口为设置 / 结果双栏，小窗口自动切换单栏，底部操作栏固定可见。运行日志可展开并拖动调整高度，查看旧日志时不会被新输出强行滚回底部。工具路径、超时和图表设置收在高级设置中。旧版偏好设置自动兼容读取。
 
-程序不会修改 Markdown 原文或 Word 模板。默认保留下列中间结果：
+转换前会检查 `$$` 行间公式。对于首尾分隔符独占一行的明确公式块，自动忽略内部空白行，日志会提示原始行号；此兼容同时适用于 MathType 和 Word 原生公式，不修改源 Markdown。代码块、行内代码及转义美元符号保持原样。分隔符未配对、空公式或仍未被 Pandoc 识别的公式会报告错误，避免静默输出残缺文本。
 
-- `*_stage1_latex.docx`：已套模板、公式仍为 LaTeX 的文档；
-- 行间公式在转换为 MathType 对象后立即插入 MathType 原生编号，不再生成独立的 `*_mathtype_unnumbered.docx` 中间文件；
-- `*_visio_sources/`：仅在勾选“转换为可编辑 Visio 对象”时创建，包含 Mermaid 源文件、清单及生成的 VSDX；未勾选时 DOCX 只保留流程图占位符，不产生该目录。
+公式有两种模式：
 
-这些文件用于排查问题和从失败阶段恢复。
+- **使用 MathType 公式**：需要桌面版 Microsoft Word、已激活的 MathType 6 和可用的 Word 加载项。支持给行间公式添加 MathType 原生右编号。
+- **关闭 MathType**：生成可编辑的 Word 原生公式（OMML），无需启动 Office。当前不提供此模式的右编号。
 
-## 公式转换与编号逻辑
+MathType 编号格式支持 `(1)`、`(1-1)`、`(1.1)`；后两种为整篇单章格式，不会按标题自动划章。后续编辑公式后可使用 MathType“更新公式编号”。转换时不要操作 Word 或 MathType，Office 和工具应使用相同权限。
 
-### 公式转换
+高级设置还包括保留模板表格格式、自动图表题注、等待超时（每个后台操作默认 1800 秒）及实验性的 Mermaid → Visio 对象转换。Visio 模式需要桌面版 Visio，目前支持常见 flowchart/graph 节点和连接，复杂语法可能失败。不启用 Visio 时保留 Mermaid 源代码，不生成无内容的图形占位符。
 
-- Stage 1 输出的 DOCX 暂时保留 LaTeX 文本：行内公式为 `$...$`，独立行间公式为 `\[...\]`。
-- Stage 2 使用 Word 中 MathType 6 加载项的 Toggle TeX，把每个精确文本范围转换成 `Equation.DSMT4` OLE 对象，不会调用 Word 原生 OMML 公式。
-- 公式按文档坐标从后向前处理，避免前面的替换使尚未处理的范围失效。
-- 表格中的行内公式如果触发 “Convert To Display Style?”，GUI 自动选择 `Create Inline Style Equation`。
-- 只有独占一个段落的行间公式参与编号；正文和表格中的行内公式不会编号。
+图片自动嵌入 DOCX，支持相对 Markdown 的路径、绝对路径、URL 编码路径和 `file://` 文件路径，包括中文及空格文件名；过宽图片保持比例缩小到模板可打印页宽。图片文件须实际存在。缺失图片或 Pandoc 降级转换会明确报告警告；请补齐资源后重新转换。
 
-### MathType 原生编号
+MathType 转换前自动删除数学表达式中的 `\tag{...}` 和 `\tag*{...}`（支持嵌套花括号），右编号由 MathType 编号选项统一生成，原来的 tag 内容不作为编号保留。正文和代码中的同名文字不改动。此清理只应用于 MathType 模式。
 
-启用“添加公式编号”后，不再先生成一个完整的未编号 DOCX 再遍历编号。每个 `\[...\]` 转换成 MathType 对象后，程序立即执行 MathType 的直接调用宏 `MTCommand_InsertEqnNum`，在同一 `MTDisplayEquation` 段落右侧插入编号。全部公式完成后执行 `MTCommand_UpdateEqns` 更新整个文档。
+“正文参考文献引用上标”默认关闭，开启后将正文中的 `[1]`、`[1, 2]`、`[1-3]` 等数字引用转换为上标，保留引用链接。代码和公式不参与处理；参考文献章节及以 `[数字]` 开头的文献条目保持原样。这是文本规则，不校验引用是否对应真实文献，其他正文数字方括号也可能匹配。
 
-编号不是普通文本，也不使用 `SEQ Equation`。它由 MathType 管理的 Word 域组成：外层是 `MACROBUTTON MTPlaceRef`，内部使用 `SEQ MTEqn`，因此可以继续使用 MathType 选项卡的格式化、更新、浏览和公式引用功能。
+三反引号或波浪线围栏代码块保留为可编辑文本，保留缩进、换行和 Pandoc 支持的语法高亮，使用等宽字体、浅色底纹和单倍行距，长代码块可跨页。不会把代码中的美元符号当公式或把 `[1]` 当引用，也不自动执行代码、转换为截图或表格。Mermaid 仅在启用 Visio 时走图形转换。
 
-GUI 编号格式与 MathType 格式串的对应关系如下：
+## 输出与日志
 
-| GUI 选项 | 显示示例 | MathType 格式 | 初始化分隔符 |
-| --- | --- | --- | --- |
-| 连续编号 `Simple` | `(1)` | `(#E1)` | 文档开头插入隐藏的“下一节”分隔符 |
-| 章-公式 `ChapterDash` | `(1-1)` | `(#C1-#E1)` | 文档开头插入隐藏的“下一章”分隔符 |
-| 章.公式 `ChapterDot` | `(1.1)` | `(#C1.#E1)` | 文档开头插入隐藏的“下一章”分隔符 |
+输出位置只生成最终 DOCX。临时文档、图形源文件和内部清单存放在系统临时目录，成功、失败或取消后自动清理。界面和命令行不再提供中间阶段选择或续跑入口。
 
-这些分隔符通过 `MTCommand_InsertNextSection` 或 `MTCommand_InsertNextChapter` 创建，使用 MathType 的 `MTEquationSection`/`MTEditEquationSection` 隐藏域保存编号状态。`Simple` 虽然不显示节号，仍使用隐藏节分隔符初始化和重置公式序号。不要把这些隐藏域当作乱码或多余正文删除。
+完整日志保存在 `%LOCALAPPDATA%\Markdown2Word\logs\latest.log`，每次转换覆盖上一份，可在日志面板打开。“复制”通过系统剪贴板复制完整日志；文件不可用时复制当前缓存。日志及错误详情可直接选中文字后按 Ctrl+C，追加日志不会重建已有文字节点。页面显示内容和桥接层日志缓存均有大小限制，完整内容以日志文件为准。窗口通过原生标题栏拖动。历史版本已经生成的任务目录不会自动删除。
 
-### 后续手工新增或修改公式
+输入和模板保持只读。默认禁止覆盖成品；允许覆盖时也会等待新结果通过公式、正文和结构检查后再替换。失败或取消不替换已有输出。取消会先请求后台清理，10 秒未响应再终止后台进程树。外部 Office 若有模态窗口，需要关闭后再重试。
 
-- 修改已有公式：双击 MathType 公式对象编辑即可；公式编号域与公式对象相互独立，通常不需要重新插入编号。
-- 在现有编号序列中新增公式：优先使用 Word 的 MathType 选项卡插入“右编号行间公式”；也可以先插入行间公式，再把光标放在同一公式段落右侧并使用“插入编号”。
-- 新增、删除或移动编号公式后：使用 MathType 选项卡的“更新公式编号”，不要只按 Word 的普通“更新域”。
-- 修改 `(1)`、`(1-1)`、`(1.1)` 等格式：打开 MathType 的“格式化公式编号”，选择应用到整个文档，然后再执行“更新公式编号”。
-- 开始新章或新节：在第一个新公式之前使用 MathType 的“插入下一章分隔符”或“插入下一节分隔符”。如果要指定非连续的章/节值，使用 MathType 的“插入分隔符…”或“修改分隔符…”。
-- 查看分隔符：可在 Word 中开启“显示/隐藏编辑标记”。分隔符属于 MathType 编号基础设施，即使不打印也应保留。
-- 不要手工创建 `SEQ Equation`、普通括号数字或删除 `MTPlaceRef` 域，否则 MathType 无法统一格式化和更新这些编号。
-
-## 仓库结构
-
-```text
-Markdown2WordByTemplate/
-├─ run_gui.py                       # 源码环境启动入口
-├─ pyproject.toml                   # Python 项目和依赖配置
-├─ src/markdown2word/
-│  ├─ __main__.py                   # python -m markdown2word
-│  ├─ gui/                          # Tkinter 图形界面
-│  ├─ core/                         # 参数校验、任务编排、日志和取消
-│  ├─ win32/                        # MathType 弹窗等 Windows 辅助逻辑
-│  └─ backends/
-│     ├─ stage1/                    # Markdown、Pandoc、DOCX 格式化
-│     ├─ mathtype/                  # Word/MathType 转换与编号
-│     ├─ pipeline/                  # 当前兼容后端编排
-│     └─ visio/                     # Mermaid/Visio 后处理
-├─ tests/                           # 自动化测试
-└─ docs/                            # 架构、操作和阶段契约文档
-```
-
-`src/markdown2word/backends` 中暂时保留了 PowerShell 兼容实现，因为现有 Word/MathType 自动化逻辑已经过实际文档验证。它们属于应用内部实现，用户不需要调用。后续会逐阶段迁移为 Python COM 模块，而 GUI 和配置接口保持不变。
-
-## 开发与测试
-
-运行测试：
+## 无 GUI 运行
 
 ```powershell
-$env:PYTHONPATH = "$PWD\src"
-python -m unittest discover -s tests -v
+# 原生 Word 公式，无需 Office
+python -m markdown2word.core.cli report.md report.docx --no-formulas
+
+# MathType 和右编号
+python -m markdown2word.core.cli report.md report.docx --force
 ```
 
-主要测试范围包括参数校验、命令编排、错误分类和 MathType 弹窗匹配。涉及 Word、MathType 和 Visio 的端到端测试必须在安装对应桌面软件的 Windows 交互式会话中执行。
+其他选项包括 `--template`、`--pandoc`、`--no-numbers`、`--number-format`、`--reference-superscript`、`--preserve-table-style`、`--no-auto-captions`、`--visio`、`--no-auto-word` 和 `--timeout`。`--no-formulas` 为兼容命名，含义是不用 MathType，公式仍会保留为可编辑的原生公式。
 
-## 常见问题
+## 开发与验证
 
-### Word 或 MathType 无法连接
+```powershell
+python -m unittest discover -s tests -v
+python -m compileall -q src tests
 
-- 确认使用桌面版 Microsoft Word，而不是 WPS。
-- 确认 Word 与 GUI 以相同权限级别运行，通常都应使用普通权限。
-- 在 Word 中手动执行一次 MathType Toggle TeX，确认加载项与许可证正常。
-- 关闭正在占用输入或输出 DOCX 的 Word/WPS 窗口。
+# 仅开发测试需要 Node.js；不打开 GUI 或浏览器
+npm ci
+npm run check
+npm test
+```
 
-### 表格公式弹出 “Convert To Display Style?”
+回归测试使用真实 Pandoc，覆盖数学 AST、代码/金额识别、原生公式、表格、题注、缺图警告、文件保护、临时文件清理、取消和超时。Windows 上还解析 PowerShell 脚本并测试纯 Mermaid 解析及正文指纹逻辑。测试不启动 GUI 或 Office，真实 MathType/Visio 自动化需要在相应桌面环境验证。
 
-GUI 会识别该窗口并选择 `Create Inline Style Equation`。日志应显示“已检测到 MathType 行内/行间选择框”和“已自动选择”。如果只能检测而不能点击，重点检查 Word 与 GUI 是否处于不同权限级别。
+桌面接口测试覆盖设置迁移、并发任务拒绝、退出清理和通过桥接层的真实 Pandoc 转换。前端使用 jsdom 验证路径联动、选项提交、运行中禁用控件及错误/日志的纯文本显示。HTML/CSS/JS 位于 `src/markdown2word/gui/assets`，无需编译即可随包加载。
 
-### 转换失败但只有笼统提示
-
-查看日志中最后一个明确的阶段和错误。阶段文件不会自动删除：Stage 1 文件用于检查 Markdown/Pandoc；最终 DOCX 在核心公式与编号审计通过后保存检查点。如果日志明确显示检查点已经保存，文档可用于检查，但重新自动转换时仍建议从 Markdown 或 Stage 1 DOCX 开始，不要把部分转换、部分编号的 DOCX 当作新的输入。
-
-### Mermaid 无法转换
-
-Visio 自动转换目前为实验性功能，暂不推荐勾选。已知问题包括 Visio/Word COM 调用可能失败，以及生成图的布局、节点尺寸、连线路径和 Mermaid 的浏览器渲染效果不一致。
-
-当前仅优先支持 `flowchart`/`graph` 的常用节点和 `-->` 连接，复杂子图、HTML 标签和高级样式无法可靠还原。建议保持 Visio 转换未勾选，让 Word 保留 `[VISIO:diagram-NN]` 占位符，再根据原始 Markdown 中的 Mermaid 代码人工绘制或插入流程图。只有勾选转换时才会创建 `*_visio_sources/`，并保留 `.mmd`、`manifest.json` 和已生成的 `.vsdx` 供排查或人工编辑。
-
-## 后续重构方向
-
-- 将流水线编排迁移为独立 Python Worker，并使用结构化事件向 GUI 返回进度。
-- 将 Word/MathType 转换和编号逐步迁移到 `pywin32`。
-- 将 DOCX 自定义属性与编号格式处理迁移为纯 Python XML 模块。
-- 将 Visio COM 操作迁移为 Python。
-- 增加 PyInstaller 构建，使最终用户可以直接运行 `Markdown2Word.exe`。
-
-详细边界见 [架构说明](docs/architecture.md) 和 [阶段契约](docs/pipeline-contract.md)。
+详见 [架构说明](docs/architecture.md)、[内部转换契约](docs/pipeline-contract.md)、[GUI 操作](docs/gui-usage.md)。

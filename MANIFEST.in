@@ -1,1 +1,2 @@
-recursive-include src/markdown2word/backends *.ps1 *.lua *.docx
+recursive-include src/markdown2word/backends *.ps1 *.docx
+recursive-include src/markdown2word/gui/assets *.html *.css *.js

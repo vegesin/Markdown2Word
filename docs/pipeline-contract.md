@@ -1,35 +1,19 @@
-# Pipeline contract
+# Internal conversion contract
 
-## Stage 1 output
+The public operation accepts Markdown, an optional template and a final DOCX path. Intermediate representations are private, temporary, and never exposed as a resume interface.
 
-The DOCX intentionally contains literal LaTeX. It is not the final document.
+Pandoc JSON AST is authoritative. Only Math nodes are formulas; code and escaped dollar signs remain literal. MathType mode replaces Math nodes with unique tokens, materializes bookmarked LaTeX ranges (`M2WMathNNNNNN`), and validates formula counts and layout. Native mode keeps Math nodes and requires one OMML equation per source formula. Pandoc warnings, including missing images and unsupported math, are propagated as warning events.
 
-- Inline: `$latex$`
-- Display: centered `\[latex\]` with at-least 30 pt line spacing
-- Diagram: `[VISIO:diagram-NN]`
+MathType preparation removes balanced `\tag` and `\tag*` commands before materializing formula bookmarks. Native math remains unchanged. Optional numeric-reference superscripting operates on prose AST inlines, preserving links and excluding code, math and reference entries. Local image targets are decoded and normalized against the Markdown directory before rendering; embedded images are constrained to the template page width. Code block formatting preserves source characters and line boundaries, permits page breaks and applies a monospace font with shading.
 
-Do not add equation-number fields before the corresponding display formula is converted. When numbering is enabled, convert each `\[...\]` range to an `Equation.DSMT4` object and immediately invoke MathType's native Insert Equation Number command for that paragraph. Do not run a separate whole-document numbering pass; run one final MathType Update Equation Numbers command after all formulas are converted.
+The builder validates equation spacing and, unless template table style is requested, three-line table borders before publishing the working document. It rejects unexpected OLE objects and legacy equation-number fields. Native mode permits OMML; MathType preparation requires zero OMML.
 
-## MathType handoff
+MathType runs on a working copy and converts exact bookmarked ranges in reverse document order. Never run Toggle TeX on WholeStory. Every formula must produce an Equation.DSMT4 object. Display formulas are numbered immediately after conversion through MathType native commands; a final update refreshes numbering fields. ChapterDash and ChapterDot are single-chapter formats.
 
-Run the packaged MathType backend on a copy. Never run `MTCommand_OnTexToggle` on `Selection.WholeStory()` for a Chinese document. Resolve one exact target range at a time and run Toggle TeX directly on that selection. The expected final MathType object ProgID is `Equation.DSMT4`.
+Source text fingerprints replace only bookmarked formula ranges, preserving literal TeX in code and prose. Final fingerprints remove only converted objects and MathType-owned numbering/section field results. Final formula count, paragraph/table structure and non-formula text checks are mandatory. Failed or partially numbered copies are discarded.
 
-After conversion, require:
+When Visio is enabled, Mermaid sources and a bookmark manifest exist only in the temporary workspace. Embedding uses exact `M2WDiagramNNNNNN` bookmarks. Unsupported diagram types keep placeholders and emit warnings. Without Visio, Mermaid remains a code block in the final document.
 
-- expected MathType object count;
-- zero residual `$...$` and `\[...\]` fragments;
-- zero Word OMath objects;
-- one native `MACROBUTTON MTPlaceRef` number per display equation when numbering is enabled;
-- no legacy `SEQ Equation` fields;
-- preserved Visio placeholders.
+The runner publishes only after every enabled operation succeeds and input/template hashes still match. Atomic publication preserves existing output on error or cancellation. The workspace is cleaned on every normal exit; only the latest application log is retained. A forced process/application crash may leave operating-system temporary files.
 
-For the non-formula text-integrity comparison, remove the result ranges of MathType-owned outer fields from both snapshots before normalization:
-
-- `MACROBUTTON MTPlaceRef` equation-number results;
-- `MACROBUTTON MTEditEquationSection` hidden chapter/section-break results.
-
-MathType is allowed to update these field results during `MTCommand_UpdateEqns`; they are numbering metadata, not source prose. Do not globally ignore arbitrary Word fields. If normalized text still differs, report the first differing index, both lengths, and bounded source/output context.
-
-## Visio handoff
-
-Always replace Mermaid blocks with `[VISIO:diagram-NN]` in the Stage-1 DOCX. Only when Visio conversion is enabled, write the `.mmd` files and `manifest.json`, generate one editable `.vsdx` for every source, and replace the matching placeholder in Word. Preserve any following figure-caption paragraph. When Visio conversion is disabled, do not create or remove a `*_visio_sources` directory.
+`M2W_EVENT <JSON>` conveys prepared counts, progress and warnings. `M2W_CANCEL_FILE` requests cooperative cleanup at formula/diagram boundaries, with a 10-second grace period before process-tree termination. Cancellation returns 130, timeout returns 124. GUI main-thread callbacks never wait for Office or process termination.

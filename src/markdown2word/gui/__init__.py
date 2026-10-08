@@ -1,1 +1,1 @@
-"""Tkinter user interface."""
+"""Local web frontend and Python desktop bridge."""

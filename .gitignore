@@ -2,6 +2,7 @@
 *.doc
 !src/markdown2word/backends/stage1/assets/default-template.docx
 __pycache__/
+node_modules/
 *.py[cod]
 .venv/
 build/
@@ -9,4 +10,10 @@ dist/
 *.egg-info/
 **.ini
 docs/old/**
-test**
+.test-tmp/
+*_tasks/
+.vscode/**
+**.txt
+
+tests/**
+test_doc/**

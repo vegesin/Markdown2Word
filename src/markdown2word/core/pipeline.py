@@ -4,23 +4,29 @@ import os
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass
+import json
+import hashlib
+import queue
+import re
+import threading
+import time
+import tempfile
+from collections import deque
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 BACKEND_ROOT = PACKAGE_ROOT / "backends"
-PIPELINE_SCRIPT = BACKEND_ROOT / "pipeline" / "convert_md_to_mathtype_docx.ps1"
 STAGE1_BACKEND = BACKEND_ROOT / "stage1"
 MATHTYPE_BACKEND = BACKEND_ROOT / "mathtype"
-STAGE1_SCRIPT = STAGE1_BACKEND / "run_md_to_template_docx.ps1"
 VISIO_SCRIPT = BACKEND_ROOT / "visio" / "convert_mermaid_to_visio.ps1"
 
 NUMBER_FORMATS = {
     "(1), (2), ...": "Simple",
-    "(1-1), (1-2), ...": "ChapterDash",
-    "(1.1), (1.2), ...": "ChapterDot",
+    "(1-1), (1-2), ...（单章）": "ChapterDash",
+    "(1.1), (1.2), ...（单章）": "ChapterDot",
 }
 
 
@@ -40,18 +46,21 @@ class ConversionConfig:
     number_format: str = "Simple"
     create_visio: bool = False
     auto_start_word: bool = True
-    overwrite: bool = True
-    skip_text_integrity_check: bool = False
+    overwrite: bool = False
+    preserve_table_style: bool = False
+    auto_captions: bool = True
+    reference_superscript: bool = False
+    stage_timeout: int = 1800
 
     @property
-    def stage1_path(self) -> Path:
+    def intermediate_path(self) -> Path:
         if not self.convert_formulas:
             return self.output
-        return self.output.with_name(f"{self.output.stem}_stage1_latex.docx")
+        return self.output.with_name("prepared.docx")
 
     @property
     def visio_directory(self) -> Path:
-        return self.output.with_name(f"{self.output.stem}_visio_sources")
+        return self.output.with_name("diagrams")
 
 
 def find_powershell() -> str:
@@ -59,15 +68,7 @@ def find_powershell() -> str:
 
 
 def find_python() -> Path:
-    candidates = [
-        Path.home() / ".cache" / "codex-runtimes" / "codex-primary-runtime" / "dependencies" / "python" / "python.exe",
-        Path(sys.executable),
-    ]
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate.resolve()
-    found = shutil.which("python") or shutil.which("py")
-    return Path(found) if found else Path(sys.executable)
+    return Path(sys.executable).resolve()
 
 
 def find_pandoc() -> Path:
@@ -80,6 +81,15 @@ def find_pandoc() -> Path:
     for candidate in candidates:
         if candidate and candidate.is_file():
             return candidate.resolve()
+    try:
+        import pypandoc
+        candidate = Path(pypandoc.get_pandoc_path())
+        if os.name == "nt" and not candidate.is_file():
+            candidate = candidate.with_suffix(".exe")
+        if candidate.is_file():
+            return candidate.resolve()
+    except (ImportError, OSError, RuntimeError):
+        pass
     return Path(candidates[1])
 
 
@@ -95,6 +105,7 @@ def validate(config: ConversionConfig) -> ConversionConfig:
     markdown = config.markdown.expanduser().resolve()
     output = normalize_output(config.output.expanduser()).resolve()
     template = config.template.expanduser().resolve() if config.template else None
+    effective_template = template or (STAGE1_BACKEND / "assets" / "default-template.docx").resolve()
     python = (config.python or find_python()).expanduser().resolve()
     pandoc = (config.pandoc or find_pandoc()).expanduser().resolve()
 
@@ -108,8 +119,12 @@ def validate(config: ConversionConfig) -> ConversionConfig:
         raise ConfigurationError(f"未找到 Pandoc：{pandoc}")
     if config.number_format not in NUMBER_FORMATS.values():
         raise ConfigurationError(f"不支持的公式编号格式：{config.number_format}")
-    if output == markdown or (template and output == template):
+    if output in {markdown, effective_template}:
         raise ConfigurationError("输出文件不能覆盖 Markdown 原文或 Word 模板。")
+    if output.exists() and not output.is_file():
+        raise ConfigurationError(f"输出路径不是文件：{output}")
+    if not 30 <= config.stage_timeout <= 86400:
+        raise ConfigurationError("等待超时应为 30～86400 秒。")
     if output.exists() and not config.overwrite:
         raise ConfigurationError(f"输出文件已存在，请勾选“允许覆盖”：{output}")
     if config.add_numbers and not config.convert_formulas:
@@ -129,59 +144,39 @@ def validate(config: ConversionConfig) -> ConversionConfig:
         create_visio=config.create_visio,
         auto_start_word=config.auto_start_word,
         overwrite=config.overwrite,
-        skip_text_integrity_check=config.skip_text_integrity_check,
+        preserve_table_style=config.preserve_table_style,
+        auto_captions=config.auto_captions,
+        reference_superscript=config.reference_superscript,
+        stage_timeout=config.stage_timeout,
     )
 
 
 def build_commands(config: ConversionConfig) -> list[list[str]]:
-    config = validate(config)
     powershell = find_powershell()
     common = [powershell, "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]
+    command = [str(config.python), str(STAGE1_BACKEND / "build_stage1_docx.py"), str(config.markdown)]
+    if config.template:
+        command.append(str(config.template))
+    command += [str(config.intermediate_path), "--pandoc", str(config.pandoc)]
+    if not config.convert_formulas:
+        command.append('--native-math')
+    if config.preserve_table_style:
+        command.append("--preserve-table-style")
+    if not config.auto_captions:
+        command.append("--no-auto-captions")
+    if config.reference_superscript:
+        command.append('--reference-superscript')
+    if config.create_visio:
+        command += ["--write-visio-sources", "--visio-dir", str(config.visio_directory)]
+    commands = [command]
     if config.convert_formulas:
-        command = common + [
-            str(PIPELINE_SCRIPT),
-            "-MarkdownPath", str(config.markdown),
-            "-OutputPath", str(config.output),
-            "-Stage1Path", str(config.stage1_path),
-            "-Stage1BackendDirectory", str(STAGE1_BACKEND),
-            "-MathTypeBackendDirectory", str(MATHTYPE_BACKEND),
-            "-ExternalInlineDialogGuard",
-            "-PythonPath", str(config.python),
-            "-PandocPath", str(config.pandoc),
-        ]
-        if config.template:
-            command += ["-TemplatePath", str(config.template)]
+        command = common + [str(MATHTYPE_BACKEND / "convert_word_latex_to_mathtype.ps1"),
+                            "-InputPath", str(config.intermediate_path), "-OutputPath", str(config.output)]
         if config.add_numbers:
             command += ["-AddEquationNumbers", "-EquationNumberFormat", config.number_format]
         if config.auto_start_word:
             command.append("-StartWordIfNeeded")
-        if config.skip_text_integrity_check:
-            command.append("-SkipTextIntegrityCheck")
-        if config.create_visio:
-            command += [
-                "-WriteVisioSources",
-                "-VisioDirectory", str(config.visio_directory),
-            ]
-        if config.overwrite:
-            command.append("-Force")
-    else:
-        command = common + [
-            str(STAGE1_SCRIPT),
-            "-MarkdownPath", str(config.markdown),
-            "-OutputPath", str(config.output),
-            "-BackendDirectory", str(STAGE1_BACKEND),
-            "-PythonPath", str(config.python),
-            "-PandocPath", str(config.pandoc),
-        ]
-        if config.template:
-            command += ["-TemplatePath", str(config.template)]
-        if config.create_visio:
-            command += [
-                "-WriteVisioSources",
-                "-VisioDirectory", str(config.visio_directory),
-            ]
-
-    commands = [command]
+        commands.append(command)
     if config.create_visio:
         commands.append(common + [
             str(VISIO_SCRIPT),
@@ -198,12 +193,12 @@ def diagnostic_hints(output: str) -> list[str]:
         return [
             "调用到了需要 Ribbon 控件参数的 MathType OnAction 回调，或 Word.Run 参数没有正确封送；这不是公式语法或 MathType 激活问题。",
             "请确认正在运行使用 MTCommand_InsertEqnNum/MTCommand_InsertNextSection 等直接调用入口的新版本后端。",
-            "保留 Stage-1 DOCX，并从 GUI 重新执行转换。",
+            "请查看错误详情，修复 Word 加载项后重新转换。",
         ]
     if "formula conversion failed" in text or "validate mathtype object count" in text:
         return [
             "MathType 已返回，但当前公式没有生成新的 Equation.DSMT4 对象；工具会等待对象创建并对未变化的公式安全重试一次。",
-            "如果安全重试仍失败，请检查日志中的 Formula、Start 和 InTable，并从保留的未编号 DOCX 继续排查。",
+            "如果安全重试仍失败，请查看日志中的具体公式和位置。",
             "确认转换期间没有操作 Word；Word 与 GUI 应使用相同权限级别。",
         ]
 
@@ -225,63 +220,249 @@ def diagnostic_hints(output: str) -> list[str]:
     return list(dict.fromkeys(hints))
 
 
-class PipelineRunner:
-    def __init__(self) -> None:
-        self.process: subprocess.Popen[str] | None = None
-        self.cancelled = False
+def describe_failure(output: str) -> str:
+    text = output.lower()
+    if 'word desktop executable was not found' in text or 'not found in app paths' in text:
+        return '未找到桌面版 Microsoft Word。请检查 Office 安装；或关闭“使用 MathType 公式”，生成不需要 Office 的 Word 原生公式。'
+    if 'no running word instance' in text or 'desktop word is not available' in text:
+        return '无法连接 Microsoft Word。请关闭启动提示或模态对话框，并确保 Word 与本工具使用相同权限。'
+    reasons = re.findall(r'(?:Reason\s*:\s*|(?:RuntimeError|ValueError|FileNotFoundError|PermissionError):\s*)([^\r\n]+)', output)
+    detail = reasons[-1].strip() if reasons else next((line.strip() for line in reversed(output.splitlines()) if line.strip() and not line.strip().startswith(('+', 'at ', '所在位置', 'CategoryInfo', 'FullyQualifiedErrorId'))), '后端返回失败，请查看完整日志。')
+    if 'formula conversion failed' in text:
+        return 'MathType 公式转换失败。\n' + detail[:900]
+    return detail[:1000]
 
-    def run(self, config: ConversionConfig, log: Callable[[str], None]) -> int:
-        self.cancelled = False
-        commands = build_commands(config)
+
+class PipelineRunner:
+    def __init__(self, *, log_directory: Path | None = None) -> None:
+        self.process: subprocess.Popen[str] | None = None
+        self._cancel = threading.Event()
+        self.log_path = (log_directory or Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'Markdown2Word' / 'logs') / 'latest.log'
+        self.last_error = ''
+        self._cancel_path: Path | None = None
+        self._publish_lock = threading.Lock()
+        self.warnings: list[str] = []
+
+    @property
+    def cancelled(self) -> bool:
+        return self._cancel.is_set()
+
+    def cancel(self) -> None:
+        # GUI callbacks never wait for taskkill or a COM call.
+        with self._publish_lock:
+            self._cancel.set()
+            cancel_path = self._cancel_path
+            if cancel_path:
+                try:
+                    cancel_path.touch(exist_ok=True)
+                except OSError:
+                    pass  # The monitor still enforces cancellation after grace.
+
+    def _terminate(self, process) -> None:
+        if process.poll() is not None:
+            return
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           check=False, timeout=10,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        else:
+            process.terminate()
+
+    def _execute(self, command, config, log, event, logfile) -> int:
         env = os.environ.copy()
         env["PYTHONUTF8"] = "1"
         env["PYTHONIOENCODING"] = "utf-8"
-        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        for index, command in enumerate(commands, 1):
+        if self._cancel_path:
+            env["M2W_CANCEL_FILE"] = str(self._cancel_path)
+        process = subprocess.Popen(command, cwd=str(config.markdown.parent),
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            encoding="utf-8", errors="replace", bufsize=1, env=env,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        self.process = process
+        lines: queue.Queue = queue.Queue(maxsize=1000)
+        stop_reading = threading.Event()
+        def read():
+            try:
+                for line in process.stdout:
+                    if stop_reading.is_set():
+                        break
+                    lines.put(line)
+            finally:
+                process.stdout.close()
+                if not stop_reading.is_set():
+                    lines.put(None)
+        reader = threading.Thread(target=read, daemon=True)
+        reader.start()
+        tail = deque(maxlen=200)
+        started = time.monotonic()
+        stopping = None
+        timed_out = False
+        ended = False
+        exited_at = None
+        try:
+            while not ended:
+                now = time.monotonic()
+                if process.poll() is not None:
+                    if exited_at is None:
+                        exited_at = now
+                    elif now - exited_at > 2 and reader.is_alive():
+                        log("后端已退出，停止等待继承日志管道的子进程。\n")
+                        break
+                if not timed_out and now - started > config.stage_timeout:
+                    timed_out = True
+                    if self._cancel_path:
+                        self._cancel_path.touch(exist_ok=True)
+                    log("转换等待超时，正在请求后端退出。\n")
+                if self.cancelled or timed_out:
+                    if stopping is None:
+                        stopping = now
+                    if now - stopping > 10:
+                        self._terminate(process)
+                        if process.poll() is None:
+                            raise RuntimeError("后端未能退出；请检查任务日志和 Office 会话。")
+                try:
+                    line = lines.get(timeout=0.1)
+                except queue.Empty:
+                    if process.poll() is not None and not reader.is_alive():
+                        break
+                    continue
+                if line is None:
+                    ended = True
+                    continue
+                logfile.write(line)
+                logfile.flush()
+                tail.append(line)
+                if line.startswith("M2W_EVENT "):
+                    try:
+                        event(json.loads(line[len("M2W_EVENT "):]))
+                    except (ValueError, TypeError):
+                        log(line)
+                else:
+                    log(line)
+            # stdout can close before the process exits; keep the watchdog active.
+            while process.poll() is None:
+                now = time.monotonic()
+                if not timed_out and now - started > config.stage_timeout:
+                    timed_out = True
+                    if self._cancel_path:
+                        self._cancel_path.touch(exist_ok=True)
+                    log("转换等待超时，正在请求后端退出。\n")
+                if self.cancelled or timed_out:
+                    if stopping is None:
+                        stopping = now
+                    if now - stopping > 10:
+                        self._terminate(process)
+                time.sleep(0.1)
+            code = process.wait()
             if self.cancelled:
                 return 130
-            log(f"\n--- 执行阶段 {index}/{len(commands)} ---\n")
-            self.process = subprocess.Popen(
-                command,
-                cwd=str(config.markdown.parent),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                bufsize=1,
-                env=env,
-                creationflags=creationflags,
-            )
-            assert self.process.stdout is not None
-            captured: list[str] = []
-            for line in self.process.stdout:
-                captured.append(line)
-                log(line)
-            code = self.process.wait()
+            if timed_out:
+                self.last_error = '转换等待超时。请检查 Word / MathType 是否有未处理的对话框，或在高级设置中增加超时时间。'
+                return 124
+            if code:
+                self.last_error = describe_failure(''.join(tail))
+                for hint in diagnostic_hints("".join(tail)):
+                    log(f"  - {hint}\n")
+            return code
+        finally:
+            if process.poll() is None:
+                self._terminate(process)
+            stop_reading.set()
+            if not reader.is_alive():
+                process.stdout.close()
             self.process = None
-            if code != 0:
-                log(f"\n阶段失败，退出码：{code}\n")
-                hints = diagnostic_hints("".join(captured))
-                if hints:
-                    log("\n可能原因与处理建议：\n")
-                    for hint in hints:
-                        log(f"  - {hint}\n")
-                log("  - 已完成的阶段文件不会删除，可用于检查或从断点恢复。\n")
-                return code
-        return 0
 
-    def cancel(self) -> None:
-        self.cancelled = True
-        process = self.process
-        if process and process.poll() is None:
-            if os.name == "nt":
-                subprocess.run(
-                    ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    check=False,
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                )
-            else:
-                process.terminate()
+    def run(self, config: ConversionConfig, log: Callable[[str], None],
+            event: Callable[[dict], None] | None = None) -> int:
+        callback = event or (lambda value: None)
+        self.last_error = ''
+        self.warnings.clear()
+        prepared = {}
+        def event(value):
+            if value.get("type") == "warning":
+                self.warnings.append(value.get("message", "后端警告"))
+                log(f"警告：{self.warnings[-1]}\n")
+            elif value.get('type') == 'prepared':
+                prepared.update(value)
+            callback(value)
+        config = validate(config)
+        config.output.parent.mkdir(parents=True, exist_ok=True)
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        def digest(path):
+            return hashlib.sha256(path.read_bytes()).hexdigest()
+        template = config.template or STAGE1_BACKEND / "assets" / "default-template.docx"
+        source_hashes = (digest(config.markdown), digest(template))
+        with self.log_path.open('w', encoding='utf-8') as logfile:
+            def record(message):
+                logfile.write(message)
+                logfile.flush()
+                log(message)
+            record(f"Markdown：{config.markdown}\n输出：{config.output}\n日志：{self.log_path}\n")
+            try:
+                with tempfile.TemporaryDirectory(prefix='markdown2word-') as directory:
+                    workspace = Path(directory)
+                    self._cancel_path = workspace / 'cancel.request'
+                    work = replace(config, output=workspace / 'result.docx', overwrite=False)
+                    if self.cancelled:
+                        return 130
+                    code = self._execute([str(config.python), '-c', 'import docx, lxml'], config, log, event, logfile)
+                    if code:
+                        if code != 130:
+                            self.last_error = 'Python 环境检查失败：所选 Python 必须安装 python-docx 和 lxml。\n' + self.last_error
+                        return code
+                    commands = build_commands(work)
+                    for index, command in enumerate(commands):
+                        if self.cancelled:
+                            return 130
+                        stage = 'prepare' if index == 0 else ('mathtype' if config.convert_formulas and index == 1 else 'visio')
+                        label = {'prepare': '处理正文、模板和图表', 'mathtype': '转换 MathType 公式', 'visio': '嵌入可编辑图形'}[stage]
+                        event({'type': 'stage', 'stage': stage, 'label': label, 'current': index, 'total': len(commands)})
+                        record(f"\n{label}…\n")
+                        if stage == 'mathtype':
+                            if not prepared:
+                                raise RuntimeError('文档处理没有返回公式检查结果。')
+                            inline, display = prepared['inline'], prepared['display']
+                            if inline + display == 0:
+                                shutil.copy2(work.intermediate_path, work.output)
+                                command = []
+                                record('文档中没有公式，跳过 MathType。\n')
+                            else:
+                                command += ['-ExpectedInline', str(inline), '-ExpectedDisplay', str(display)]
+                        code = self._execute(command, config, log, event, logfile) if command else 0
+                        if code:
+                            return code
+                    if not work.output.is_file():
+                        raise RuntimeError('转换后没有生成有效的 Word 文档。')
+                    if (digest(config.markdown), digest(template)) != source_hashes:
+                        raise ConfigurationError('转换期间 Markdown 或模板发生变化，请重新开始。')
+                    # Only the final publication needs to share the output volume.
+                    descriptor, filename = tempfile.mkstemp(prefix='.markdown2word-', suffix='.tmp', dir=config.output.parent)
+                    os.close(descriptor)
+                    publication = Path(filename)
+                    try:
+                        shutil.copyfile(work.output, publication)
+                        with self._publish_lock:
+                            if self.cancelled:
+                                return 130
+                            if config.overwrite:
+                                publication.replace(config.output)
+                            else:
+                                os.link(publication, config.output)
+                    finally:
+                        publication.unlink(missing_ok=True)
+                    event({'type': 'progress', 'stage': 'complete', 'current': 1, 'total': 1})
+                    record(f'转换完成：{config.output}\n')
+                    return 0
+            except Exception as exc:
+                if self.cancelled:
+                    return 130
+                self.last_error = str(exc)
+                return 1
+            finally:
+                self._cancel_path = None
+                if self.last_error and not self.cancelled:
+                    record(f'\n转换失败：{self.last_error}\n')
+                    event({'type': 'error', 'message': self.last_error})
+                elif self.cancelled:
+                    record('\n转换已取消，临时文件已清理。\n')

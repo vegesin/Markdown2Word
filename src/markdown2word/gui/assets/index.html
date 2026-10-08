@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <!-- pywebview creates API wrappers with new Function; its bridge needs unsafe-eval. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Markdown2Word</title>
+  <!-- APP_STYLE -->
+</head>
+<body>
+<svg class="symbols" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8M8 17h5"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14a8 8 0 0 1-10-10 8 8 0 1 0 10 10Z"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m8 5 7 7-7 7"/></symbol>
+</svg>
+<div class="shell">
+  <header class="topbar">
+    <a class="brand" href="#top" aria-label="Markdown2Word 首页"><span class="brand-mark"><svg><use href="#i-doc"/></svg></span><span>Markdown2Word<small>文档转换工作台</small></span></a>
+    <div class="top-actions"><span class="local-badge"><i></i>本地处理</span><button class="icon-button" id="theme" aria-label="切换深浅主题" title="切换深浅主题"><svg><use href="#i-moon"/></svg></button></div>
+  </header>
+  <main id="top">
+    <section class="intro"><span class="eyebrow">从内容，到成品</span><h1>让文档，整装就绪。</h1><p>将 Markdown 转为排版清晰、公式可编辑的 Word 文档。</p></section>
+    <div class="workspace">
+      <div class="configuration">
+        <section class="card" aria-labelledby="files-title">
+          <div class="section-title"><span class="step">01</span><h2 id="files-title">选择文档</h2><span class="subtle">Markdown → DOCX</span></div>
+          <fieldset id="files-fields">
+            <label class="file-card" for="markdown"><span class="file-icon"><svg><use href="#i-doc"/></svg></span><span class="file-info"><strong id="source-name">添加 Markdown 文档</strong><span id="source-note">选择 .md 或 .markdown 文件</span></span><button type="button" class="secondary" data-pick="markdown">选择文件</button></label>
+            <div class="field"><label for="markdown">源文件路径</label><input id="markdown" type="text" placeholder="选择文件，或粘贴完整路径" autocomplete="off" spellcheck="false"></div>
+            <div class="field"><label for="template">Word 模板 <span class="optional">可选 · 留空使用内置模板</span></label><div class="input-action"><input id="template" placeholder="使用内置模板" autocomplete="off" spellcheck="false"><button type="button" data-pick="template" class="quiet">浏览</button></div></div>
+            <div class="field"><label for="output">保存位置</label><div class="input-action"><input id="output" placeholder="选择源文件后自动填写" autocomplete="off" spellcheck="false"><button type="button" data-pick="output" class="quiet">另存为</button></div></div>
+          </fieldset>
+        </section>
+        <section class="card" aria-labelledby="options-title">
+          <div class="section-title"><span class="step">02</span><h2 id="options-title">转换偏好</h2></div>
+          <fieldset id="option-fields">
+            <label class="field-label" id="mode-label">公式格式</label>
+            <div class="segmented" role="group" aria-labelledby="mode-label"><button type="button" data-mode="native" aria-pressed="false">Word 原生公式</button><button type="button" data-mode="mathtype" aria-pressed="true">MathType 公式</button></div>
+            <p class="help" id="mode-note">需要 Microsoft Word 和 MathType，转换期间请勿操作 Office。</p>
+            <div id="number-options" class="number-options"><label class="switch-row"><span>行间公式右编号</span><input type="checkbox" id="add_numbers" role="switch"><span class="switch-track"></span></label><select id="number_format" aria-label="公式编号格式"><option value="Simple">(1), (2), …</option><option value="ChapterDash">(1-1), (1-2), … · 单章</option><option value="ChapterDot">(1.1), (1.2), … · 单章</option></select></div>
+            <label class="switch-row"><span><strong>参考文献引用上标</strong><small>正文中的 [1]、[1, 2]、[1-3]</small></span><input type="checkbox" id="reference_superscript" role="switch"><span class="switch-track"></span></label>
+            <label class="switch-row"><span><strong>允许覆盖已有文档</strong><small>新结果通过检查后才替换原文件</small></span><input type="checkbox" id="overwrite" role="switch"><span class="switch-track"></span></label>
+          </fieldset>
+          <details id="advanced"><summary><span>高级设置</span><svg><use href="#i-chevron"/></svg></summary><fieldset id="advanced-fields">
+            <label class="switch-row"><span>自动生成图注和表注</span><input type="checkbox" id="auto_captions" role="switch"><span class="switch-track"></span></label>
+            <label class="switch-row"><span>保留模板表格格式</span><input type="checkbox" id="preserve_table_style" role="switch"><span class="switch-track"></span></label>
+            <label class="switch-row"><span>自动启动 Microsoft Word</span><input type="checkbox" id="auto_start_word" role="switch"><span class="switch-track"></span></label>
+            <label class="switch-row"><span><strong>Mermaid 转 Visio</strong><small>实验性功能，需要桌面版 Visio</small></span><input type="checkbox" id="create_visio" role="switch"><span class="switch-track"></span></label>
+            <div class="field"><label for="stage_timeout">等待超时 <span class="optional">秒 / 每个后台操作</span></label><input id="stage_timeout" type="number" min="30" max="86400" step="1"></div>
+            <div class="field"><label for="python">Python</label><div class="input-action"><input id="python" autocomplete="off" spellcheck="false"><button type="button" data-pick="python" class="quiet">浏览</button></div></div>
+            <div class="field"><label for="pandoc">Pandoc</label><div class="input-action"><input id="pandoc" autocomplete="off" spellcheck="false"><button type="button" data-pick="pandoc" class="quiet">浏览</button></div></div>
+            <button id="diagnose" class="secondary" type="button">检测运行环境</button>
+          </fieldset></details>
+        </section>
+      </div>
+      <aside class="result-column">
+        <section class="card result-card" id="result-card" aria-labelledby="result-title">
+          <div class="result-icon" id="result-icon"><svg><use href="#i-doc"/></svg></div>
+          <span class="eyebrow">你的下一份文档</span><h2 id="result-title">准备好，即可开始</h2><p id="result-description">选择文档与转换偏好，剩下的交给我们。</p>
+          <div class="result-path" id="result-path" hidden></div>
+          <div class="notice" id="result-error" hidden></div><div class="notice warning" id="result-warnings" hidden></div>
+          <div class="result-buttons" id="result-buttons" hidden><button type="button" class="primary" id="open-document">打开文档<svg><use href="#i-arrow"/></svg></button><button type="button" class="secondary" id="open-folder">所在文件夹</button></div>
+          <div class="feature-list" id="feature-list"><span><svg><use href="#i-check"/></svg>图片自动嵌入</span><span><svg><use href="#i-check"/></svg>代码与公式保留可编辑</span><span><svg><use href="#i-check"/></svg>仅输出最终 Word 文档</span></div>
+        </section>
+        <section class="card log-card"><details id="log-details"><summary><span>运行日志 <span class="log-indicator" id="log-indicator"></span></span><svg><use href="#i-chevron"/></svg></summary><div class="log-toolbar"><span id="log-caption">详细过程与诊断信息</span><div><button type="button" id="copy-log" class="text-button">复制</button><button type="button" id="open-log" class="text-button">完整日志</button></div></div><pre id="log" tabindex="0" aria-label="运行日志"></pre></details></section>
+      </aside>
+    </div>
+  </main>
+  <footer class="action-bar"><div class="task-status"><span class="status-dot" id="status-dot"></span><div><strong id="status-text" role="status">正在连接桌面服务…</strong><span id="status-note">文件在本机处理</span></div></div><div class="action-buttons"><button type="button" class="secondary" id="cancel" hidden>取消转换</button><button type="button" class="primary" id="start" disabled>开始转换<svg><use href="#i-arrow"/></svg></button></div><div class="progress-track" id="progress-track" role="progressbar" aria-label="转换进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="progress-fill"></div></div></footer>
+</div>
+<div id="toast" role="alert" hidden></div>
+<dialog id="close-dialog"><h2>退出当前任务？</h2><p>退出前会先等待后台清理。已有的成品文档会保留。</p><div class="dialog-actions"><button type="button" class="secondary" id="keep-working">继续等待</button><button type="button" class="primary" id="close-app">清理并退出</button></div></dialog>
+<!-- APP_SCRIPT -->
+</body></html>

@@ -4,14 +4,19 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "markdown2word-gui"
-version = "0.2.0"
+version = "0.4.0"
 description = "Windows GUI for converting Markdown into template-based Word documents with editable MathType equations."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "lxml>=5.0",
     "python-docx>=1.1",
+    "pywebview>=6.2,<7",
+    "pyperclip>=1.9,<2",
 ]
+
+[project.optional-dependencies]
+pandoc = ["pypandoc-binary>=1.15"]
 
 [project.scripts]
 markdown2word = "markdown2word.gui.app:main"
@@ -22,10 +27,13 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["src"]
+namespaces = false
 
 [tool.setuptools.package-data]
 markdown2word = [
     "backends/**/*.ps1",
-    "backends/**/*.lua",
     "backends/**/*.docx",
+    "gui/assets/*.html",
+    "gui/assets/*.css",
+    "gui/assets/*.js",
 ]

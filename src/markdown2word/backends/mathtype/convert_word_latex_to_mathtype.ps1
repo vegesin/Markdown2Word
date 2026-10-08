@@ -10,7 +10,6 @@ param(
     [string]$MacroName = "MTCommand_OnTexToggle",
     [ValidateRange(0, 3000)]
     [int]$DelayMilliseconds = 100,
-    [switch]$ExternalInlineDialogGuard,
     [switch]$StartWordIfNeeded,
     [switch]$AddEquationNumbers,
     [ValidateSet("Simple", "ChapterDash", "ChapterDot")]
@@ -18,7 +17,6 @@ param(
     [string]$InsertNumberMacroName = "MTCommand_InsertEqnNum",
     [string]$UpdateNumbersMacroName = "MTCommand_UpdateEqns",
     [string]$InitializeNumbersMacroName = "",
-    [switch]$SkipTextIntegrityCheck,
     [switch]$Force
 )
 
@@ -71,8 +69,6 @@ function Write-UserActionError {
     Write-Host ""
 }
 
-$displayRegex = [regex]::new('\\\[(?<content>[^\r\a]+?)\\\]', [System.Text.RegularExpressions.RegexOptions]::Singleline)
-$inlineRegex = [regex]::new('(?<!\$)\$(?!\$)(?<content>[^\r\a$]+?)(?<!\$)\$(?!\$)', [System.Text.RegularExpressions.RegexOptions]::Singleline)
 
 function Release-ComObject {
     param($Object)
@@ -276,7 +272,25 @@ function Test-FormulaRangeInTable {
     return $false
 }
 
+function Get-TaskWordWindowHandle {
+    param($Word)
+    $activeWindow = $null
+    try {
+        # Hwnd belongs to Word.Window, not Word.Application. The caller has
+        # activated the target document before starting this scoped watcher.
+        $activeWindow = $Word.ActiveWindow
+        $handle = [int64]$activeWindow.Hwnd
+        if ($handle -eq 0) { throw 'The active Word window has no valid handle.' }
+        return $handle
+    } finally {
+        if ($null -ne $activeWindow -and [Runtime.InteropServices.Marshal]::IsComObject($activeWindow)) {
+            [void][Runtime.InteropServices.Marshal]::ReleaseComObject($activeWindow)
+        }
+    }
+}
+
 function Start-InlineStyleDialogWatcher {
+    param([Parameter(Mandatory = $true)]$Word)
     $watcherCode = @'
 $ErrorActionPreference = "SilentlyContinue"
 Add-Type -AssemblyName UIAutomationClient
@@ -294,7 +308,23 @@ public static class MathTypeDialogNative {
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr hwnd, StringBuilder text, int maxCount);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowTextLength(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern bool PostMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
+    [DllImport("user32.dll")] private static extern IntPtr GetWindow(IntPtr hwnd, uint command);
     private const uint BM_CLICK = 0x00F5;
+
+    public static bool BelongsToTask(IntPtr window) {
+        long handle;
+        if (!long.TryParse(Environment.GetEnvironmentVariable("M2W_WORD_HWND"), out handle)) return false;
+        uint wordPid;
+        GetWindowThreadProcessId(new IntPtr(handle), out wordPid);
+        for (int i = 0; i < 20 && window != IntPtr.Zero; i++) {
+            uint pid;
+            GetWindowThreadProcessId(window, out pid);
+            if (wordPid != 0 && pid == wordPid) return true;
+            window = GetWindow(window, 4); // GW_OWNER
+        }
+        return false;
+    }
 
     private static string WindowText(IntPtr hwnd) {
         int length = Math.Max(GetWindowTextLength(hwnd) + 1, 512);
@@ -310,6 +340,7 @@ public static class MathTypeDialogNative {
     public static bool ClickInlineStyleButton() {
         bool clicked = false;
         EnumWindows(delegate(IntPtr window, IntPtr unused) {
+            if (!BelongsToTask(window)) return true;
             string title = NormalizedCaption(window);
             if (!Regex.IsMatch(title, "^Convert\\s+To\\s+Display\\s+Style\\??$", RegexOptions.IgnoreCase)) return true;
             EnumChildWindows(window, delegate(IntPtr child, IntPtr childUnused) {
@@ -338,6 +369,7 @@ $buttonCondition = New-Object System.Windows.Automation.PropertyCondition(
 while ([DateTime]::UtcNow -lt $deadline) {
     $windows = $root.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)
     foreach ($window in $windows) {
+        if (-not [MathTypeDialogNative]::BelongsToTask([IntPtr]$window.Current.NativeWindowHandle)) { continue }
         if ($window.Current.Name -notmatch '^Convert\s+To\s+Display\s+Style\??$') { continue }
         $buttons = $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $buttonCondition)
         foreach ($button in $buttons) {
@@ -366,6 +398,8 @@ while ([DateTime]::UtcNow -lt $deadline) {
 }
 exit 2
 '@
+    $wordHandle = Get-TaskWordWindowHandle -Word $Word
+    $watcherCode = "`$env:M2W_WORD_HWND = '$wordHandle'`n" + $watcherCode
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($watcherCode))
     $powerShellExe = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
     $process = Start-Process -FilePath $powerShellExe -ArgumentList @(
@@ -402,7 +436,7 @@ function Invoke-MathTypeToggleForFormula {
     $watcher = $null
     try {
         if ($WatchInlineStyleDialog) {
-            $watcher = Start-InlineStyleDialogWatcher
+            $watcher = Start-InlineStyleDialogWatcher -Word $Word
             $script:TableInlineDialogWatchers++
             Write-Host ("Inline-style dialog guard started. InTable={0}" -f $FormulaIsInTable) -ForegroundColor DarkCyan
         }
@@ -562,6 +596,42 @@ function Repair-DisplayEquationLayout {
     $script:DisplayEmptyParagraphsRemoved += $removed
 }
 
+function Test-InlineConversionExtraPeriod {
+    param(
+        [AllowEmptyString()][string]$ExpectedPrefix,
+        [AllowEmptyString()][string]$ActualPrefix,
+        [AllowEmptyString()][string]$ExpectedSuffix,
+        [AllowEmptyString()][string]$ActualSuffix
+    )
+    # Do not normalize punctuation globally. Only an exact one-character
+    # insertion at the converted object's boundary may be repaired.
+    return ($ExpectedPrefix -ceq $ActualPrefix -and $ActualSuffix -ceq ('.' + $ExpectedSuffix))
+}
+
+function Repair-InlineConversionExtraPeriod {
+    param($Document, [int]$FormulaStart, [string]$ExpectedPrefix, [string]$ExpectedSuffix)
+    $probe = $null; $shape = $null; $paragraph = $null
+    $prefix = $null; $suffix = $null; $extra = $null
+    try {
+        $probe = $Document.Range($FormulaStart, $FormulaStart + 1)
+        if ($probe.InlineShapes.Count -ne 1) { return }
+        $shape = $probe.InlineShapes.Item(1)
+        if (-not (Test-MathTypeInlineShape -Shape $shape)) { return }
+        if ([int]$shape.Range.Start -ne $FormulaStart) { return }
+        $paragraph = $shape.Range.Paragraphs.Item(1)
+        $prefix = $Document.Range([int]$paragraph.Range.Start, $FormulaStart)
+        $suffix = $Document.Range([int]$shape.Range.End, [int]$paragraph.Range.End)
+        if (Test-InlineConversionExtraPeriod -ExpectedPrefix $ExpectedPrefix -ActualPrefix ([string]$prefix.Text) `
+                -ExpectedSuffix $ExpectedSuffix -ActualSuffix ([string]$suffix.Text)) {
+            $extra = $Document.Range([int]$shape.Range.End, [int]$shape.Range.End + 1)
+            $extra.Delete() | Out-Null
+            Write-Host "Removed one verified extra period after inline MathType object at Start=$FormulaStart."
+        }
+    } finally {
+        foreach ($item in @($extra, $suffix, $prefix, $paragraph, $shape, $probe)) { Release-ComObject $item }
+    }
+}
+
 function Convert-OneFormula {
     param(
         [Parameter(Mandatory = $true)]$Word,
@@ -571,6 +641,8 @@ function Convert-OneFormula {
     $stage = "create target range"
     $targetRange = $null
     $watchInlineStyleDialog = $false
+    $checkExtraPeriod = $false
+    $expectedPrefix = ''; $expectedSuffix = ''
     try {
         $contentStart = [int]$TargetDocument.Content.Start
         $contentEnd = [int]$TargetDocument.Content.End
@@ -590,7 +662,23 @@ function Convert-OneFormula {
         # Do not make dialog protection depend on Word's table-range metadata.
         # MathType can request display conversion for inline formulas in narrow
         # cells and other layout contexts even when Word reports InTable=false.
-        $watchInlineStyleDialog = ([string]$Formula.Kind -eq "inline") -and (-not $ExternalInlineDialogGuard)
+        $watchInlineStyleDialog = ([string]$Formula.Kind -eq "inline")
+        # Guard against the observed extra period after an inline ellipsis
+        # conversion. Snapshot the complete paragraph sides before conversion
+        # so a real source period can never be discarded.
+        $checkExtraPeriod = $watchInlineStyleDialog -and ([string]$Formula.Literal -cmatch '\\ldots\b')
+        if ($checkExtraPeriod) {
+            $paragraph = $null; $prefix = $null; $suffix = $null
+            try {
+                $paragraph = $targetRange.Paragraphs.Item(1)
+                $prefix = $TargetDocument.Range([int]$paragraph.Range.Start, $targetStart)
+                $suffix = $TargetDocument.Range($targetEnd, [int]$paragraph.Range.End)
+                $expectedPrefix = [string]$prefix.Text
+                $expectedSuffix = [string]$suffix.Text
+            } finally {
+                Release-ComObject $suffix; Release-ComObject $prefix; Release-ComObject $paragraph
+            }
+        }
 
         # MathType 6 officially accepts $...$ as inline Texvc and \[...\] as
         # display Texvc. Convert the selected range in the target document itself;
@@ -624,6 +712,10 @@ function Convert-OneFormula {
                     $afterObjects = Wait-MathTypeObjectCount -Document $TargetDocument -ExpectedCount ($beforeObjects + 1)
                     if ($afterObjects -eq ($beforeObjects + 1)) {
                         $script:TransientFormulaRetries++
+                        if ($checkExtraPeriod) {
+                            Repair-InlineConversionExtraPeriod -Document $TargetDocument -FormulaStart $targetStart `
+                                -ExpectedPrefix $expectedPrefix -ExpectedSuffix $expectedSuffix
+                        }
                         return
                     }
                 }
@@ -691,6 +783,11 @@ function Convert-OneFormula {
                 throw "MathType ignored the original formula and all safe compatibility fallback forms."
             }
         }
+        if ($checkExtraPeriod) {
+            $stage = "check inline ellipsis conversion boundary"
+            Repair-InlineConversionExtraPeriod -Document $TargetDocument -FormulaStart $targetStart `
+                -ExpectedPrefix $expectedPrefix -ExpectedSuffix $expectedSuffix
+        }
     } catch {
         $hresult = ""
         if ($_.Exception -is [System.Runtime.InteropServices.COMException]) {
@@ -704,99 +801,32 @@ function Convert-OneFormula {
     }
 }
 
-function Normalize-SourceText {
-    param([Parameter(Mandatory = $true)][string]$Text)
-    $normalized = $displayRegex.Replace($Text, "[MATH]")
-    $normalized = $inlineRegex.Replace($normalized, "[MATH]")
-    $normalized = $normalized.Replace([string][char]1, "[MATH]")
-    # Toggle TeX may add paragraph marks around display equations. Ignore only
-    # whitespace so that non-formula Chinese text is still compared exactly.
-    return [regex]::Replace($normalized, '[\s\u00A0]+', '')
-}
-
 function Normalize-ConvertedText {
     param([Parameter(Mandatory = $true)][string]$Text)
     $normalized = $Text.Replace([string][char]1, "[MATH]")
     return [regex]::Replace($normalized, '[\s\u00A0]+', '')
 }
 
-function New-TextOffsetToWordPositionMap {
-    param(
-        [Parameter(Mandatory = $true)]$Range,
-        [Parameter(Mandatory = $true)][string]$Text
-    )
-    $map = [int[]]::new($Text.Length + 1)
-    $offset = 0
-    $map[0] = [int]$Range.Start
-    $characters = $Range.Characters
-    try {
-        for ($i = 1; $i -le $characters.Count; $i++) {
-            $character = $characters.Item($i)
-            try {
-                $characterText = [string]$character.Text
-                for ($j = 0; $j -lt $characterText.Length; $j++) {
-                    if (($offset + $j) -le $Text.Length) {
-                        $map[$offset + $j] = [int]$character.Start
-                    }
-                }
-                $offset += $characterText.Length
-                if ($offset -le $Text.Length) {
-                    $map[$offset] = [int]$character.End
-                }
-            } finally {
-                Release-ComObject $character
-            }
-        }
-    } finally {
-        Release-ComObject $characters
-    }
-    if ($offset -ne $Text.Length) {
-        throw "Unable to map paragraph text to Word positions. TextLength=$($Text.Length), CharacterTextLength=$offset, Range=[$($Range.Start),$($Range.End))."
-    }
-    return $map
-}
-
 function Get-FormulaWordRanges {
     param([Parameter(Mandatory = $true)]$Document)
     $result = [System.Collections.Generic.List[object]]::new()
-    for ($paragraphIndex = 1; $paragraphIndex -le $Document.Paragraphs.Count; $paragraphIndex++) {
-        $paragraph = $Document.Paragraphs.Item($paragraphIndex)
+    for ($bookmarkIndex = 1; $bookmarkIndex -le $Document.Bookmarks.Count; $bookmarkIndex++) {
+        $bookmark = $Document.Bookmarks.Item($bookmarkIndex)
         $range = $null
         try {
-            $range = $paragraph.Range.Duplicate
+            if ([string]$bookmark.Name -notmatch '^M2WMath\d+$') { continue }
+            $range = $bookmark.Range.Duplicate
             $text = [string]$range.Text
-            $displayMatches = @($displayRegex.Matches($text))
-            $inlineMatches = @($inlineRegex.Matches($text))
-            if (($displayMatches.Count + $inlineMatches.Count) -eq 0) { continue }
-
-            $map = $null
-            if ($text.Length -ne ([int]$range.End - [int]$range.Start)) {
-                $map = New-TextOffsetToWordPositionMap -Range $range -Text $text
-            }
-
-            foreach ($entry in @(
-                @($inlineMatches | ForEach-Object { [pscustomobject]@{ Match = $_; Kind = 'inline' } }) +
-                @($displayMatches | ForEach-Object { [pscustomobject]@{ Match = $_; Kind = 'display' } })
-            )) {
-                $match = $entry.Match
-                if ($null -eq $map) {
-                    $start = [int]$range.Start + [int]$match.Index
-                    $end = $start + [int]$match.Length
-                } else {
-                    $start = $map[$match.Index]
-                    $end = $map[$match.Index + $match.Length]
-                }
-                $result.Add([pscustomobject]@{
-                    Start = [int]$start
-                    Length = [int]($end - $start)
-                    Kind = [string]$entry.Kind
-                    Literal = [string]$match.Value
-                    Paragraph = $paragraphIndex
-                })
-            }
+            $kind = if ($text.StartsWith('\[') -and $text.EndsWith('\]')) { 'display' }
+                    elseif ($text.StartsWith('$') -and $text.EndsWith('$')) { 'inline' }
+                    else { throw "Invalid formula bookmark: $($bookmark.Name)" }
+            $result.Add([pscustomobject]@{
+                Start = [int]$range.Start; Length = [int]($range.End - $range.Start)
+                Kind = $kind; Literal = $text; Bookmark = [string]$bookmark.Name
+            })
         } finally {
             Release-ComObject $range
-            Release-ComObject $paragraph
+            Release-ComObject $bookmark
         }
     }
     return @($result)
@@ -1162,8 +1192,13 @@ function Add-MathTypeNativeNumberAtFormula {
 }
 
 function Get-DocumentTextWithoutMathTypeManagedFieldResults {
-    param([Parameter(Mandatory = $true)]$Document)
+    param([Parameter(Mandatory = $true)]$Document, [switch]$ReplaceFormulas)
     $spans = [System.Collections.Generic.List[object]]::new()
+    if ($ReplaceFormulas) {
+        foreach ($formula in @(Get-FormulaWordRanges -Document $Document)) {
+            $spans.Add([pscustomobject]@{ Start=$formula.Start; End=($formula.Start + $formula.Length); Replacement='[MATH]' })
+        }
+    }
     for ($i = 1; $i -le $Document.Fields.Count; $i++) {
         $field = $Document.Fields.Item($i)
         try {
@@ -1178,6 +1213,7 @@ function Get-DocumentTextWithoutMathTypeManagedFieldResults {
                     # Include the opening and closing field characters.
                     Start = [int]$field.Code.Start - 1
                     End = [int]$field.Result.End + 1
+                    Replacement = ''
                 })
             }
         } finally { Release-ComObject $field }
@@ -1189,7 +1225,10 @@ function Get-DocumentTextWithoutMathTypeManagedFieldResults {
             $gap = $Document.Range($cursor, $span.Start)
             try { [void]$builder.Append([string]$gap.Text) } finally { Release-ComObject $gap }
         }
-        if ($span.End -gt $cursor) { $cursor = $span.End }
+        if ($span.End -gt $cursor) {
+            [void]$builder.Append([string]$span.Replacement)
+            $cursor = $span.End
+        }
     }
     $documentEnd = [int]$Document.Content.End
     if ($cursor -lt $documentEnd) {
@@ -1266,7 +1305,6 @@ if ($AddEquationNumbers) {
 $word = $null
 $document = $null
 $tempDocument = $null
-$saved = $false
 
 try {
     $word = Get-RunningWord
@@ -1284,6 +1322,7 @@ try {
     $document = Invoke-WithRetry -Operation {
         $word.Documents.Open($OutputPath, $false, $false, $false)
     }
+    if ($document.ReadOnly) { throw 'Output document was opened read-only; close the document and retry.' }
     $document.Activate()
 
     if ($AddEquationNumbers) {
@@ -1308,15 +1347,12 @@ try {
     $originalTables = $document.Tables.Count
     $initialMathTypeObjects = Get-MathTypeObjectCount -Document $document
     $originalText = [string]$document.Content.Text
-    $sourceIntegrityText = if ($AddEquationNumbers) {
-        Get-DocumentTextWithoutMathTypeManagedFieldResults -Document $document
-    } else {
-        $originalText
-    }
-    $sourceFingerprint = Normalize-SourceText -Text $sourceIntegrityText
+    $sourceIntegrityText = Get-DocumentTextWithoutMathTypeManagedFieldResults -Document $document -ReplaceFormulas
+    $sourceFingerprint = Normalize-ConvertedText -Text $sourceIntegrityText
 
-    $displayMatches = @($displayRegex.Matches($originalText))
-    $inlineMatches = @($inlineRegex.Matches($originalText))
+    $formulas = @(Get-FormulaWordRanges -Document $document)
+    $displayMatches = @($formulas | Where-Object Kind -eq 'display')
+    $inlineMatches = @($formulas | Where-Object Kind -eq 'inline')
     if ($ExpectedInline -ge 0 -and $inlineMatches.Count -ne $ExpectedInline) {
         throw "Formula count mismatch before conversion. Inline=$($inlineMatches.Count)/$ExpectedInline, Display=$($displayMatches.Count)/$ExpectedDisplay"
     }
@@ -1331,7 +1367,6 @@ try {
     Write-Host ("Detected formulas: {0} inline, {1} display" -f $ExpectedInline, $ExpectedDisplay) -ForegroundColor Green
 
     Write-Host "Resolving LaTeX ranges in Word-native coordinates" -ForegroundColor Cyan
-    $formulas = @(Get-FormulaWordRanges -Document $document)
     $resolvedInline = @($formulas | Where-Object Kind -eq 'inline').Count
     $resolvedDisplay = @($formulas | Where-Object Kind -eq 'display').Count
     if ($resolvedInline -ne $ExpectedInline -or $resolvedDisplay -ne $ExpectedDisplay) {
@@ -1341,7 +1376,9 @@ try {
 
     Write-Host "Converting $($ordered.Count) formulas individually. Do not interact with Word." -ForegroundColor Cyan
     for ($index = 0; $index -lt $ordered.Count; $index++) {
+        if ($env:M2W_CANCEL_FILE -and (Test-Path -LiteralPath $env:M2W_CANCEL_FILE)) { throw 'Conversion cancelled by user.' }
         $formula = $ordered[$index]
+        $formulaTimer = [Diagnostics.Stopwatch]::StartNew()
         $done = $index + 1
         if ($done -eq 1 -or $done % 10 -eq 0) {
             Write-Host ("Starting {0}/{1}: {2}, Start={3}, Length={4}" -f $done, $ordered.Count, $formula.Kind, $formula.Start, $formula.Length)
@@ -1353,6 +1390,8 @@ try {
         if ($done -eq 1 -or $done % 10 -eq 0 -or $done -eq $ordered.Count) {
             Write-Host ("Converted {0}/{1}" -f $done, $ordered.Count)
         }
+        $formulaTimer.Stop()
+        Write-Host ('M2W_EVENT ' + (@{type='progress'; stage='mathtype'; current=$done; total=$ordered.Count; elapsed_ms=$formulaTimer.ElapsedMilliseconds} | ConvertTo-Json -Compress))
     }
 
     if ($AddEquationNumbers) {
@@ -1370,8 +1409,10 @@ try {
 
     $mathTypeObjects = @(Get-MathTypeInlineShapes -Document $document).Count
     $convertedText = [string]$document.Content.Text
-    $remainingInline = $inlineRegex.Matches($convertedText).Count
-    $remainingDisplay = $displayRegex.Matches($convertedText).Count
+    # Literal TeX in source code is intentional. Per-target object checks plus
+    # the fingerprint below audit all AST-approved formulas without scanning code.
+    $remainingInline = 0
+    $remainingDisplay = 0
     $expectedFinalMathTypeObjects = $initialMathTypeObjects + $ExpectedInline + $ExpectedDisplay
     if ($mathTypeObjects -ne $expectedFinalMathTypeObjects) {
         throw "Expected $expectedFinalMathTypeObjects MathType objects, found $mathTypeObjects."
@@ -1390,39 +1431,29 @@ try {
         throw "Unexpected pre-existing MathType equation numbers were found: $mathTypeNativeNumbers"
     }
 
-    # Preserve a recoverable output as soon as the core formula audit passes.
-    # Later layout/text-integrity checks can still reject the result, but they no
-    # longer discard a successful 227-formula conversion.
-    $document.Save()
-    $saved = $true
-    Write-Host "Core formula conversion checkpoint saved" -ForegroundColor Green
-
     $finalParagraphs = $document.Paragraphs.Count
     $paragraphDelta = $finalParagraphs - $originalParagraphs
     if ($document.Tables.Count -ne $originalTables) {
-        throw "Table structure changed during conversion. Tables $originalTables->$($document.Tables.Count). Output checkpoint retained: $OutputPath"
+        throw "Table structure changed during conversion. Tables $originalTables->$($document.Tables.Count)."
     }
     if ($paragraphDelta -lt 0 -or $paragraphDelta -gt $ExpectedDisplay) {
-        throw "Unexpected paragraph change during conversion. Paragraphs $originalParagraphs->$finalParagraphs (delta=$paragraphDelta; allowed=0..$ExpectedDisplay). Output checkpoint retained: $OutputPath"
+        throw "Unexpected paragraph change during conversion. Paragraphs $originalParagraphs->$finalParagraphs (delta=$paragraphDelta; allowed=0..$ExpectedDisplay)."
     }
     if ($paragraphDelta -gt 0) {
         Write-Host ("MathType added {0} display-equation paragraph boundaries (allowed up to {1})." -f $paragraphDelta, $ExpectedDisplay) -ForegroundColor Yellow
     }
-    if (-not $SkipTextIntegrityCheck) {
-        $integrityText = if ($AddEquationNumbers) {
-            Get-DocumentTextWithoutMathTypeManagedFieldResults -Document $document
-        } else {
-            $convertedText
-        }
-        $convertedFingerprint = Normalize-ConvertedText -Text $integrityText
-        if ($sourceFingerprint -cne $convertedFingerprint) {
-            $difference = Get-TextDifferenceSummary -Expected $sourceFingerprint -Actual $convertedFingerprint
-            throw "Normalized non-formula text changed during conversion. $difference. Output checkpoint retained for inspection: $OutputPath"
-        }
+    $integrityText = if ($AddEquationNumbers) {
+        Get-DocumentTextWithoutMathTypeManagedFieldResults -Document $document
+    } else {
+        $convertedText
+    }
+    $convertedFingerprint = Normalize-ConvertedText -Text $integrityText
+    if ($sourceFingerprint -cne $convertedFingerprint) {
+        $difference = Get-TextDifferenceSummary -Expected $sourceFingerprint -Actual $convertedFingerprint
+        throw "Normalized non-formula text changed during conversion. $difference."
     }
 
     $document.Save()
-    $saved = $true
     Write-Host "Success" -ForegroundColor Green
     [pscustomobject]@{
         InputPath = $InputPath
@@ -1447,7 +1478,7 @@ try {
         WordOMathObjects = $document.OMaths.Count
         Paragraphs = $document.Paragraphs.Count
         Tables = $document.Tables.Count
-        TextIntegrityChecked = (-not $SkipTextIntegrityCheck)
+        TextIntegrityChecked = $true
     }
 } catch {
     $conversionError = $_
@@ -1457,20 +1488,10 @@ try {
         -Actions @(
             "InputPath : $InputPath",
             "OutputPath: $OutputPath",
-            "If partial progress was saved, inspect the output DOCX or resume using it as the next -InputPath.",
+            "Restart conversion from the original Markdown after fixing the reported error.",
             "For delimiter issues, ensure inline formulas are `$...`$ and display formulas are \[...\]; do not use `$\$...`$\$.",
             "For Word/MathType issues, leave Word open, verify Toggle TeX manually, and rerun."
         )
-    if ($null -ne $document) {
-        try {
-            $document.Save()
-            $saved = $true
-            Write-Warning "Conversion stopped, but partial progress was saved: $OutputPath"
-            Write-Warning "Resume by using this partial DOCX as the next -InputPath and a new -OutputPath."
-        } catch {
-            Write-Warning "Conversion failed and the partial checkpoint could not be saved: $($_.Exception.Message)"
-        }
-    }
     throw $conversionError
 } finally {
     if ($null -ne $document) {
