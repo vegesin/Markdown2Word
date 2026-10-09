@@ -196,7 +196,7 @@ class DesktopApi:
                 if code == 0:
                     warnings = list(self._runner.warnings)
                     self._state.update(state='warning' if warnings else 'success', status='转换完成，含警告' if warnings else '文档已准备就绪',
-                                       progress=100, output=str(config.output), warnings=warnings)
+                                       progress=100, output=str(getattr(self._runner, 'output_path', None) or config.output), warnings=warnings)
                 elif code == 130:
                     self._state.update(state='cancelled', status='已取消，临时文件已清理')
                 else:

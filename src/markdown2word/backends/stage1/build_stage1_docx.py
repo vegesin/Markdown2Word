@@ -69,6 +69,33 @@ def first_existing_style(doc: Document, names: list[str]):
     return None
 
 
+def format_hyperlinks(doc: Document) -> None:
+    """Make links visibly blue even when the reference template uses black."""
+    def set_blue(properties):
+        color = properties.find(qn('w:color'))
+        if color is None:
+            color = OxmlElement('w:color')
+            properties.append(color)
+        for attribute in ('themeColor', 'themeTint', 'themeShade'):
+            color.attrib.pop(qn('w:' + attribute), None)
+        color.set(qn('w:val'), '0563C1')
+
+    for name in ('Hyperlink', 'FollowedHyperlink'):
+        try:
+            style = doc.styles[name]
+        except KeyError:
+            style = doc.styles.add_style(name, WD_STYLE_TYPE.CHARACTER)
+        set_blue(style.element.get_or_add_rPr())
+    # Include table cells and existing header/footer parts. Explicit run colors
+    # override inherited black colors without changing text, targets or superscript.
+    for part in doc.part.package.parts:
+        element = getattr(part, 'element', None)
+        if element is not None:
+            for hyperlink in element.iter(qn('w:hyperlink')):
+                for run in hyperlink.iter(qn('w:r')):
+                    set_blue(run.get_or_add_rPr())
+
+
 def ensure_caption_style(doc: Document):
     try:
         return doc.styles["Caption"]
@@ -533,6 +560,7 @@ def main() -> int:
         visio_count = format_visio_placeholders(doc)
         caption_summary = {} if args.no_auto_captions else apply_captions(doc)
         inline_formula_paragraphs = format_inline_formula_spacing(doc)
+        format_hyperlinks(doc)
         doc.core_properties.title = markdown.stem
         doc.core_properties.subject = "Markdown technical report"
         if args.native_math:

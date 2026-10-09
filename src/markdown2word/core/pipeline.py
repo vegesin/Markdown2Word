@@ -241,6 +241,7 @@ class PipelineRunner:
         self.last_error = ''
         self._cancel_path: Path | None = None
         self._publish_lock = threading.Lock()
+        self.output_path: Path | None = None
         self.warnings: list[str] = []
 
     @property
@@ -373,10 +374,67 @@ class PipelineRunner:
                 process.stdout.close()
             self.process = None
 
+    def _publish_result(self, source: Path, output: Path, overwrite: bool, record, event) -> Path | None:
+        """Publish atomically; preserve a verified result if the destination is locked."""
+        denied = None
+        folders = [output.parent, self.log_path.parent / 'recovered']
+        for index, folder in enumerate(folders):
+            publication = None
+            try:
+                if self.cancelled:
+                    return None
+                folder.mkdir(parents=True, exist_ok=True)
+                descriptor, filename = tempfile.mkstemp(prefix='.markdown2word-', suffix='.tmp', dir=folder)
+                os.close(descriptor)
+                publication = Path(filename)
+                shutil.copyfile(source, publication)
+                if index == 0:
+                    for attempt in range(3):
+                        try:
+                            with self._publish_lock:
+                                if self.cancelled:
+                                    return None
+                                if overwrite:
+                                    publication.replace(output)
+                                else:
+                                    os.link(publication, output)
+                                return output
+                        except PermissionError as exc:
+                            denied = exc
+                            if attempt < 2:
+                                record('输出文件暂时无法写入，正在重试保存…\n')
+                                if self._cancel.wait(.35):
+                                    return None
+                # A unique final DOCX never replaces an existing user document.
+                suffix = publication.stem.removeprefix('.markdown2word-')
+                alternate = folder / f'{output.stem}_转换结果_{time.strftime("%Y%m%d_%H%M%S")}_{suffix}.docx'
+                with self._publish_lock:
+                    if self.cancelled:
+                        return None
+                    os.link(publication, alternate)
+                message = (f'原输出文件被占用或没有写入权限，未能保存到：{output}。'
+                           f'已将转换成品另存为：{alternate}。原文件未修改。'
+                           '如需覆盖原文件，请先关闭 Word 中的该文档，并检查文件及目录权限。')
+                record(f'原保存错误：{denied}\n')
+                event({'type': 'warning', 'message': message})
+                return alternate
+            except PermissionError as exc:
+                denied = exc
+                if index == len(folders) - 1:
+                    raise PermissionError(f'转换已完成，但输出目录及恢复目录均无法写入。请检查权限：{output.parent}；{folder}。原错误：{exc}') from exc
+            finally:
+                if publication is not None:
+                    try:
+                        publication.unlink(missing_ok=True)
+                    except OSError as exc:
+                        event({'type': 'warning', 'message': f'保存临时文件未能清理：{publication}；{exc}'})
+        return None
+
     def run(self, config: ConversionConfig, log: Callable[[str], None],
             event: Callable[[dict], None] | None = None) -> int:
         callback = event or (lambda value: None)
         self.last_error = ''
+        self.output_path = None
         self.warnings.clear()
         prepared = {}
         def event(value):
@@ -387,7 +445,6 @@ class PipelineRunner:
                 prepared.update(value)
             callback(value)
         config = validate(config)
-        config.output.parent.mkdir(parents=True, exist_ok=True)
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         def digest(path):
             return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -436,23 +493,11 @@ class PipelineRunner:
                         raise RuntimeError('转换后没有生成有效的 Word 文档。')
                     if (digest(config.markdown), digest(template)) != source_hashes:
                         raise ConfigurationError('转换期间 Markdown 或模板发生变化，请重新开始。')
-                    # Only the final publication needs to share the output volume.
-                    descriptor, filename = tempfile.mkstemp(prefix='.markdown2word-', suffix='.tmp', dir=config.output.parent)
-                    os.close(descriptor)
-                    publication = Path(filename)
-                    try:
-                        shutil.copyfile(work.output, publication)
-                        with self._publish_lock:
-                            if self.cancelled:
-                                return 130
-                            if config.overwrite:
-                                publication.replace(config.output)
-                            else:
-                                os.link(publication, config.output)
-                    finally:
-                        publication.unlink(missing_ok=True)
+                    self.output_path = self._publish_result(work.output, config.output, config.overwrite, record, event)
+                    if self.output_path is None:
+                        return 130
                     event({'type': 'progress', 'stage': 'complete', 'current': 1, 'total': 1})
-                    record(f'转换完成：{config.output}\n')
+                    record(f'转换完成：{self.output_path}\n')
                     return 0
             except Exception as exc:
                 if self.cancelled:
