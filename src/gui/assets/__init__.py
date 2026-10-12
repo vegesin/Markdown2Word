@@ -1,0 +1,1 @@
+"""Bundled desktop frontend resources."""

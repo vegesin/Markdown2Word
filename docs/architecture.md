@@ -1,5 +1,13 @@
 # 架构说明
 
+源码平铺在 `src` 下，`core`、`gui`、`backends`、`formatting`、`requirements` 是独立 Python 包。桌面启动仍由 `run_gui.py` 或安装后的 `markdown2word` 命令完成。
+
+`requirements` 负责只读提取格式要求、本地规则解析、内置提示词及 Chat Completions 兼容 API；AI 只产生带来源和问题清单的规范草稿，没有文件操作或工具执行能力。`formatting` 负责 JSON Schema 校验、继承与默认值展开、Word 模板生成和格式校验。`core.template_cli` 提供独立模板命令。
+
+`gui/template_api.py` 与转换任务共用线程互斥和退出等待机制，模板任务不阻塞前端。AI 对话历史仅保存在当前窗口，Key 不进入持久配置；取消等待当前 HTTP 请求返回/超时并丢弃结果。模板项目保存规范、样张、来源报告和哈希，不是转换流水线的恢复接口。
+
+使用 `format_spec` 时，核心保存完整规范快照，Stage1 由受控基础文档构建 Pandoc 参考模板，并在转换后应用动态规则。MathType 接收公式行距和段间距参数。最终发布前执行协议格式检查和输入哈希检查；不指定协议则使用兼容的旧转换行为。
+
 `gui` 收集参数、显示结果和日志；`core.pipeline` 统一校验、编排后台进程、处理取消和超时以及发布成品；`core.cli` 提供无 GUI 入口。`backends/stage1` 是内部 AST/DOCX 构建实现，`backends/mathtype` 和 `backends/visio` 分别负责 Office 自动化。`office_session.ps1` 共享 Word 发现和连接逻辑。
 
 `gui/app.py` 负责 pywebview 桌面窗口和前端资源加载；`gui/bridge.py` 提供文件对话框、配置迁移、任务管理、增量日志与退出清理接口；`gui/assets` 为原生 HTML/CSS/JavaScript 界面。转换核心不依赖 GUI，实现单独维护。

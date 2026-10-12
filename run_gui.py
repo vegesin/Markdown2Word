@@ -6,7 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from markdown2word.gui.app import main
+from gui.app import main
 
 if __name__ == "__main__":
     main()

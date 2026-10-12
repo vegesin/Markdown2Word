@@ -17,6 +17,12 @@ param(
     [string]$InsertNumberMacroName = "MTCommand_InsertEqnNum",
     [string]$UpdateNumbersMacroName = "MTCommand_UpdateEqns",
     [string]$InitializeNumbersMacroName = "",
+    [ValidateRange(12, 200)]
+    [double]$DisplayMinPt = 30,
+    [ValidateRange(0, 200)]
+    [double]$DisplaySpaceBeforePt = 3,
+    [ValidateRange(0, 200)]
+    [double]$DisplaySpaceAfterPt = 3,
     [switch]$Force
 )
 
@@ -570,9 +576,9 @@ function Repair-DisplayEquationLayout {
             $paragraph.Format.FirstLineIndent = 0
             $paragraph.Format.TabStops.ClearAll()
             $paragraph.Format.LineSpacingRule = $wdLineSpaceAtLeast
-            $paragraph.Format.LineSpacing = 30
-            $paragraph.Format.SpaceBefore = 3
-            $paragraph.Format.SpaceAfter = 3
+            $paragraph.Format.LineSpacing = $DisplayMinPt
+            $paragraph.Format.SpaceBefore = $DisplaySpaceBeforePt
+            $paragraph.Format.SpaceAfter = $DisplaySpaceAfterPt
             $paragraph.Format.KeepTogether = $true
             $reformatted++
 
@@ -1162,9 +1168,9 @@ function Add-MathTypeNativeNumberAtFormula {
         Release-ComObject $centerTab
         Release-ComObject $rightTab
         $paragraph.Format.LineSpacingRule = $wdLineSpaceAtLeast
-        $paragraph.Format.LineSpacing = 30.0
-        $paragraph.Format.SpaceBefore = 3
-        $paragraph.Format.SpaceAfter = 3
+        $paragraph.Format.LineSpacing = $DisplayMinPt
+        $paragraph.Format.SpaceBefore = $DisplaySpaceBeforePt
+        $paragraph.Format.SpaceAfter = $DisplaySpaceAfterPt
         $paragraph.Format.KeepTogether = $true
         $script:DisplayParagraphsReformatted++
 

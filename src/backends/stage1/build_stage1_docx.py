@@ -7,7 +7,11 @@ import re
 import subprocess
 import tempfile
 import zipfile
+import sys
 from pathlib import Path
+
+if __package__ in (None, ''):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from docx import Document
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
@@ -33,6 +37,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Build a template-based DOCX with LaTeX preserved for MathType.")
     p.add_argument("markdown", type=Path)
     p.add_argument("template_or_output", type=Path)
+    p.add_argument('--format-spec', type=Path)
     p.add_argument("output", type=Path, nargs="?")
     p.add_argument("--pandoc", default="pandoc")
     p.add_argument("--visio-dir", type=Path)
@@ -215,7 +220,7 @@ def iter_body_blocks(doc: Document):
             yield ("table", tables_by_element[child])
 
 
-def apply_captions(doc: Document) -> dict[str, int]:
+def apply_captions(doc: Document, spec=None) -> dict[str, int]:
     ensure_caption_style(doc)
     blocks = list(iter_body_blocks(doc))
     figure_no = 0
@@ -226,6 +231,8 @@ def apply_captions(doc: Document) -> dict[str, int]:
     inserted_tables = 0
 
     for index, (kind, block) in enumerate(blocks):
+        if spec and not spec['captions']['figure']['enabled']:
+            break
         if kind != "paragraph" or not (paragraph_has_drawing(block) or is_visio_placeholder(block)):
             continue
         paragraph = block
@@ -244,10 +251,15 @@ def apply_captions(doc: Document) -> dict[str, int]:
             caption_paragraph = insert_paragraph_after(paragraph)
             inserted_figures += 1
         write_caption(caption_paragraph, FIGURE_LABEL, body, figure_no)
+        if spec:
+            caption_paragraph.style = doc.styles['Figure Caption']
+            caption_paragraph.runs[0].text = spec['captions']['figure']['label']
         figure_captions += 1
 
     blocks = list(iter_body_blocks(doc))
     for index, (kind, block) in enumerate(blocks):
+        if spec and not spec['captions']['table']['enabled']:
+            break
         if kind != "table":
             continue
         table = block
@@ -264,6 +276,9 @@ def apply_captions(doc: Document) -> dict[str, int]:
             caption_paragraph = insert_paragraph_before_table(table)
             inserted_tables += 1
         write_caption(caption_paragraph, TABLE_LABEL, body, table_no)
+        if spec:
+            caption_paragraph.style = doc.styles['Table Caption']
+            caption_paragraph.runs[0].text = spec['captions']['table']['label']
         table_captions += 1
 
     return {
@@ -499,6 +514,11 @@ def fit_images(doc: Document) -> int:
 
 def main() -> int:
     args = parse_args()
+    spec = None
+    if args.format_spec:
+        from formatting.spec import load_spec
+        from formatting.word import configure_document, apply_content, audit_package
+        spec = load_spec(args.format_spec)
     markdown = args.markdown.resolve()
     if args.output is None:
         template = args.default_template.resolve()
@@ -530,6 +550,12 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="md-template-docx-", dir=output.parent) as tmp:
         tmp_path = Path(tmp)
+        if spec:
+            template = tmp_path / 'reference.docx'
+            clean = Document()
+            configure_document(clean, spec)
+            clean.save(template)
+            audit_package(template, clean_template=True)
         temp_md = tmp_path / "source.json"
         temp_docx = tmp_path / "pandoc.docx"
         audited_docx = tmp_path / "audited.docx"
@@ -552,13 +578,15 @@ def main() -> int:
             message = ('图片资源缺失，文档中已用描述替代。请补齐 Markdown 引用的图片后重新转换。\n' if 'Could not fetch resource' in detail else 'Pandoc 转换警告：\n') + detail
             print('M2W_EVENT ' + json.dumps({'type': 'warning', 'message': message}, ensure_ascii=False), flush=True)
         doc = Document(temp_docx)
-        code_blocks = format_code_blocks(doc)
+        if spec:
+            configure_document(doc, spec)
+        code_blocks = format_code_blocks(doc) if not spec else 0
         images = fit_images(doc)
         materialize_formulas(doc, ([] if args.native_math else formulas) + [{"id": d["bookmark"], "token": d["token"], "literal": d["placeholder"]} for d in manifest])
         display_count = format_display_equations(doc)
-        table_count = 0 if args.preserve_table_style else format_tables(doc)
+        table_count = 0 if args.preserve_table_style or spec else format_tables(doc)
         visio_count = format_visio_placeholders(doc)
-        caption_summary = {} if args.no_auto_captions else apply_captions(doc)
+        caption_summary = apply_captions(doc, spec) if spec else ({} if args.no_auto_captions else apply_captions(doc))
         inline_formula_paragraphs = format_inline_formula_spacing(doc)
         format_hyperlinks(doc)
         doc.core_properties.title = markdown.stem
@@ -570,10 +598,18 @@ def main() -> int:
                     set_line_spacing_at_least(paragraph, 600)
                 elif paragraph._p.xpath('.//m:oMath'):
                     set_line_spacing_at_least(paragraph, 500)
+        if spec:
+            apply_content(doc, spec)
+            if spec['toc']['enabled']:
+                print('M2W_EVENT ' + json.dumps({'type':'warning','message':'目录域已插入，请在 Word 中更新目录和页码。'},ensure_ascii=False),flush=True)
         doc.save(audited_docx)
 
         reopened = Document(audited_docx)
-        audit_layout(reopened, preserve_table_style=args.preserve_table_style)
+        if spec:
+            from formatting.audit import audit_format
+            audit_format(reopened, spec)
+        else:
+            audit_layout(reopened, preserve_table_style=args.preserve_table_style)
         math_texts = [text for p in content_paragraphs(reopened) for text in formula_literals(p)]
         inline_count = sum(text.startswith('$') for text in math_texts)
         display_text_count = sum(text.startswith('\\[') for text in math_texts)

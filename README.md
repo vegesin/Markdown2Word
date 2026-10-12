@@ -13,6 +13,8 @@ Markdown2Word 是一款面向 Windows 的桌面转换工具，适用于技术报
 | 功能 | 转换效果 |
 | --- | --- |
 | Markdown 转 DOCX | 转换标题、正文、列表、表格等内容，支持选择 Word 模板 |
+| 从要求创建模板 | 导入 TXT、Markdown、DOCX 格式要求，生成 JSON 规范、干净的 Word 模板和样张 |
+| AI 辅助规范解析 | GUI 内配置外部 API 并对话，内置提示词约束标准输出；支持人工编辑及离线规则解析 |
 | 可编辑公式 | 支持行内、行间公式，可选择 Word 原生公式或 MathType 公式 |
 | 公式编号 | MathType 模式支持行间公式右编号及多种编号格式 |
 | 图片自动插入 | 根据 Markdown 图片路径嵌入图片，过宽图片按页面可用宽度缩小 |
@@ -22,7 +24,7 @@ Markdown2Word 是一款面向 Windows 的桌面转换工具，适用于技术报
 | 日志与文件保护 | 显示警告和错误，支持复制完整日志，覆盖前检查新结果 |
 | Mermaid 转 Visio | 实验性支持将部分流程图转换为可编辑 Visio 对象 |
 
-界面支持深浅主题和窗口大小自适应。转换主要在本机执行，界面资源随工具安装；Markdown 引用网络图片等资源时，转换过程可能访问相应网址。
+界面支持深浅主题和窗口大小自适应。转换主要在本机执行，界面资源随工具安装；Markdown 引用网络图片等资源时，转换过程可能访问相应网址。只有主动使用 AI 对话时，格式要求和会话内容会发送到用户配置的 API。
 
 ## 环境要求
 
@@ -84,9 +86,21 @@ python run_gui.py
 
 选择 `.md` 或 `.markdown` 文件后，工具会自动填写同名 DOCX 路径，也可以手工指定其他位置。
 
-“Word 模板”接受 `.docx` 文件，留空时使用内置模板。模板作为文档样式参考，用于控制字体、标题等排版；模板中的封面或正文内容不会作为整份文档直接复制到输出中。复杂版式仍建议在转换后检查。
+“Word 模板”接受 `.docx/.dotx/.docm` 文件，留空且未选择格式协议时使用内置模板。模板作为文档样式参考，用于控制字体、标题等排版；模板中的封面或正文内容不会作为整份文档直接复制到输出中。复杂版式仍建议在转换后检查。
 
 输入 Markdown 和模板不会被修改。“允许覆盖已有文档”默认关闭，需要替换已有输出时再开启。
+
+### 根据格式要求创建模板
+
+在 GUI 的“创建模板”中：
+
+1. 导入格式要求文件或 JSON 协议。可以先用 `tests/fixtures/requirements.md` 或 `requirements.docx` 体验。
+2. 使用本地解析，或配置 API 基础地址、模型和密钥后点击“发送给 AI”。内置提示词要求返回统一 JSON 草稿；可继续对话修正规则。
+3. 查看和编辑草稿，点击“校验并查看完整规范”，解决 `issues` 中的冲突和不支持要求。可以先保存草稿，稍后再导入继续编辑。
+4. 核对默认值，填写一个尚不存在的模板目录，生成模板与 `preview.docx` 样张。
+5. 生成成功后，GUI 自动选中该项目的 `spec.json`，后续 Markdown 转换无需再调用 AI。
+
+格式协议与外部 Word 模板二选一。使用协议时，表格、题注和公式编号由协议控制；目录域需在 Word 中更新实际页码。PDF/OCR、复杂分节和真正按章公式编号暂未实现。完整字段、接口配置、安全边界与样例见 [格式规范与模板生成](docs/format-spec.md)。
 
 ### 选择公式模式
 
@@ -249,16 +263,16 @@ report/
 
 ```powershell
 # Word 原生公式，无需启动 Office
-python -m markdown2word.core.cli report.md report.docx --no-formulas
+python -m core.cli report.md report.docx --no-formulas
 
 # MathType 公式及右编号，需要 Word 和 MathType
-python -m markdown2word.core.cli report.md report.docx
+python -m core.cli report.md report.docx
 
 # 使用模板，并处理正文数字引用上标
-python -m markdown2word.core.cli report.md report.docx --template template.docx --reference-superscript
+python -m core.cli report.md report.docx --template template.docx --reference-superscript
 
 # 查看全部参数
-python -m markdown2word.core.cli --help
+python -m core.cli --help
 ```
 
 如果使用前面的未激活虚拟环境，将 `python` 替换为 `.\.venv\Scripts\python.exe`。
@@ -267,6 +281,7 @@ python -m markdown2word.core.cli --help
 | --- | --- |
 | `--no-formulas` | 使用 Word 原生公式，不进行 MathType 转换；公式仍保留 |
 | `--template PATH` | 指定 DOCX 样式模板 |
+| `--format-spec PATH` | 使用标准 JSON 格式规范，与 `--template` 互斥 |
 | `--pandoc PATH` | 指定 Pandoc 可执行程序 |
 | `--no-numbers` | 关闭 MathType 行间公式右编号 |
 | `--number-format Simple/ChapterDash/ChapterDot` | 选择编号格式，三个值任选其一 |
@@ -280,21 +295,34 @@ python -m markdown2word.core.cli --help
 
 ## 开发与相关文档
 
-桌面界面使用 pywebview 和本地 HTML/CSS/JavaScript，Python 后端负责文档转换与 Office 自动化。前端资源位于 `src/markdown2word/gui/assets`，无需构建即可随包加载。
+桌面界面使用 pywebview 和本地 HTML/CSS/JavaScript，Python 后端负责文档转换与 Office 自动化。前端资源位于 `src/gui/assets`，无需构建即可随包加载。
+
+源码直接放在 `src` 下，包含 `core`、`gui`、`backends`、`formatting`、`requirements`，不再嵌套 `markdown2word` 包。安装命令和 `python run_gui.py` 启动方式不变；旧的 `python -m markdown2word.core.cli` 改为 `python -m core.cli`。在未安装的源码环境运行模块时，先设置 `$env:PYTHONPATH = "$PWD/src"`。
+
+```powershell
+# 根据要求生成模板，输出文件/目录需要尚不存在
+python -m core.template_cli parse tests/fixtures/requirements.md draft.json
+python -m core.template_cli build draft.json report-template
+python -m core.cli tests/fixtures/report.md report.docx --format-spec report-template/spec.json --no-formulas
+```
 
 基础检查可在开发环境中执行：
 
 ```powershell
 python -m compileall -q src
-python -m markdown2word.core.cli --help
+python -m core.cli --help
+python -m core.template_cli --help
+python -m unittest discover -s tests
 
 # 以下仅前端开发需要 Node.js
 npm ci
 npm run check
+npm test
 ```
 
-完整回归测试依赖 `tests/` 中的测试文件；当前这些文件未纳入 Git 跟踪，单独检出仓库不包含完整测试集。真实 MathType / Visio 自动化还需要在安装相应软件的 Windows 桌面环境中验证。
+`tests/` 和 `tests/fixtures/` 随仓库提供，包括 Word 格式要求文件、冲突要求、中间协议及转换输入。安装 `[pandoc]` 后可运行真实原生公式转换回归；AI 测试使用模拟 HTTP 响应。真实 API、MathType / Visio 自动化需另行配置相应服务或 Windows 软件环境。
 
 - [GUI 操作说明](docs/gui-usage.md)：界面设置、日志和任务操作。
 - [架构说明](docs/architecture.md)：前后端职责及后台任务组织。
 - [内部转换契约](docs/pipeline-contract.md)：公式、图形和文档检查的实现约定。
+- [格式规范与模板生成](docs/format-spec.md)：协议、AI 对话、模板项目及版本边界。

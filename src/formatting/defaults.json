@@ -1,0 +1,334 @@
+{
+  "schema_version": "1.0",
+  "name": "默认技术报告",
+  "base_profile": "m2w-default@1",
+  "page": {
+    "size": "A4",
+    "orientation": "portrait",
+    "margins_mm": {
+      "top": 25,
+      "bottom": 25,
+      "left": 25,
+      "right": 25
+    }
+  },
+  "styles": {
+    "body": {
+      "font": {
+        "east_asia": "宋体",
+        "latin": "Times New Roman",
+        "size_pt": 12,
+        "bold": false,
+        "italic": false,
+        "color": "000000"
+      },
+      "paragraph": {
+        "alignment": "justify",
+        "first_line_indent": {
+          "value": 2,
+          "unit": "char"
+        },
+        "line_spacing": {
+          "mode": "multiple",
+          "value": 1.5
+        },
+        "space_before_pt": 0,
+        "space_after_pt": 0,
+        "keep_with_next": false,
+        "keep_together": false,
+        "page_break_before": false
+      }
+    },
+    "first_paragraph": {
+      "based_on": "body"
+    },
+    "figure_caption": {
+      "based_on": "body",
+      "paragraph": {
+        "first_line_indent": {
+          "value": 0,
+          "unit": "pt"
+        },
+        "alignment": "center",
+        "keep_together": true,
+        "keep_with_next": false
+      },
+      "font": {
+        "size_pt": 10.5
+      }
+    },
+    "table_caption": {
+      "based_on": "body",
+      "paragraph": {
+        "first_line_indent": {
+          "value": 0,
+          "unit": "pt"
+        },
+        "alignment": "center",
+        "keep_together": true,
+        "keep_with_next": true
+      },
+      "font": {
+        "size_pt": 10.5
+      }
+    },
+    "table_body": {
+      "based_on": "body",
+      "paragraph": {
+        "first_line_indent": {
+          "value": 0,
+          "unit": "pt"
+        }
+      }
+    },
+    "table_header": {
+      "based_on": "body",
+      "paragraph": {
+        "first_line_indent": {
+          "value": 0,
+          "unit": "pt"
+        }
+      },
+      "font": {
+        "bold": true
+      }
+    },
+    "code": {
+      "based_on": "body",
+      "paragraph": {
+        "first_line_indent": {
+          "value": 0,
+          "unit": "pt"
+        },
+        "alignment": "left",
+        "line_spacing": {
+          "mode": "single"
+        }
+      },
+      "font": {
+        "east_asia": "Microsoft YaHei UI",
+        "latin": "Consolas",
+        "size_pt": 9
+      }
+    },
+    "quote": {
+      "based_on": "body",
+      "paragraph": {
+        "first_line_indent": {
+          "value": 0,
+          "unit": "pt"
+        }
+      }
+    },
+    "equation": {
+      "based_on": "body",
+      "paragraph": {
+        "first_line_indent": {
+          "value": 0,
+          "unit": "pt"
+        },
+        "alignment": "center",
+        "keep_together": true
+      }
+    },
+    "heading_1": {
+      "based_on": "body",
+      "paragraph": {
+        "first_line_indent": {
+          "value": 0,
+          "unit": "pt"
+        },
+        "alignment": "left",
+        "keep_with_next": true,
+        "space_before_pt": 12,
+        "space_after_pt": 6
+      },
+      "font": {
+        "east_asia": "黑体",
+        "size_pt": 16,
+        "bold": true
+      }
+    },
+    "heading_2": {
+      "based_on": "body",
+      "paragraph": {
+        "first_line_indent": {
+          "value": 0,
+          "unit": "pt"
+        },
+        "alignment": "left",
+        "keep_with_next": true,
+        "space_before_pt": 12,
+        "space_after_pt": 6
+      },
+      "font": {
+        "east_asia": "黑体",
+        "size_pt": 14,
+        "bold": true
+      }
+    },
+    "heading_3": {
+      "based_on": "body",
+      "paragraph": {
+        "first_line_indent": {
+          "value": 0,
+          "unit": "pt"
+        },
+        "alignment": "left",
+        "keep_with_next": true,
+        "space_before_pt": 12,
+        "space_after_pt": 6
+      },
+      "font": {
+        "east_asia": "黑体",
+        "size_pt": 12,
+        "bold": true
+      }
+    },
+    "heading_4": {
+      "based_on": "body",
+      "paragraph": {
+        "first_line_indent": {
+          "value": 0,
+          "unit": "pt"
+        },
+        "alignment": "left",
+        "keep_with_next": true,
+        "space_before_pt": 12,
+        "space_after_pt": 6
+      },
+      "font": {
+        "east_asia": "黑体",
+        "size_pt": 12,
+        "bold": true
+      }
+    },
+    "heading_5": {
+      "based_on": "body",
+      "paragraph": {
+        "first_line_indent": {
+          "value": 0,
+          "unit": "pt"
+        },
+        "alignment": "left",
+        "keep_with_next": true,
+        "space_before_pt": 12,
+        "space_after_pt": 6
+      },
+      "font": {
+        "east_asia": "黑体",
+        "size_pt": 12,
+        "bold": true
+      }
+    },
+    "heading_6": {
+      "based_on": "body",
+      "paragraph": {
+        "first_line_indent": {
+          "value": 0,
+          "unit": "pt"
+        },
+        "alignment": "left",
+        "keep_with_next": true,
+        "space_before_pt": 12,
+        "space_after_pt": 6
+      },
+      "font": {
+        "east_asia": "黑体",
+        "size_pt": 12,
+        "bold": true
+      }
+    },
+    "heading_7": {
+      "based_on": "body",
+      "paragraph": {
+        "first_line_indent": {
+          "value": 0,
+          "unit": "pt"
+        },
+        "alignment": "left",
+        "keep_with_next": true,
+        "space_before_pt": 12,
+        "space_after_pt": 6
+      },
+      "font": {
+        "east_asia": "黑体",
+        "size_pt": 12,
+        "bold": true
+      }
+    },
+    "heading_8": {
+      "based_on": "body",
+      "paragraph": {
+        "first_line_indent": {
+          "value": 0,
+          "unit": "pt"
+        },
+        "alignment": "left",
+        "keep_with_next": true,
+        "space_before_pt": 12,
+        "space_after_pt": 6
+      },
+      "font": {
+        "east_asia": "黑体",
+        "size_pt": 12,
+        "bold": true
+      }
+    },
+    "heading_9": {
+      "based_on": "body",
+      "paragraph": {
+        "first_line_indent": {
+          "value": 0,
+          "unit": "pt"
+        },
+        "alignment": "left",
+        "keep_with_next": true,
+        "space_before_pt": 12,
+        "space_after_pt": 6
+      },
+      "font": {
+        "east_asia": "黑体",
+        "size_pt": 12,
+        "bold": true
+      }
+    }
+  },
+  "headings": {
+    "numbering": "none",
+    "depth": 3
+  },
+  "table": {
+    "borders": "three_line",
+    "repeat_header": true,
+    "cell_margin_mm": 1.5
+  },
+  "captions": {
+    "figure": {
+      "enabled": true,
+      "position": "below",
+      "label": "图",
+      "scope": "document"
+    },
+    "table": {
+      "enabled": true,
+      "position": "above",
+      "label": "表",
+      "scope": "document"
+    }
+  },
+  "equations": {
+    "display_min_pt": 30,
+    "inline_min_pt": 25,
+    "numbering": "none"
+  },
+  "toc": {
+    "enabled": false,
+    "depth": 3
+  },
+  "header_footer": {
+    "header_text": "",
+    "page_number": false
+  },
+  "hyperlink_color": "0563C1"
+}

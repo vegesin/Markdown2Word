@@ -13,6 +13,7 @@ def main() -> int:
     parser.add_argument("markdown", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--template", type=Path)
+    parser.add_argument('--format-spec', type=Path, help='Use a versioned formatting JSON specification')
     parser.add_argument("--pandoc", type=Path)
     parser.add_argument("--no-formulas", action="store_true", help="Use editable native Word equations instead of MathType (no Office required)")
     parser.add_argument("--no-numbers", action="store_true")
@@ -26,7 +27,7 @@ def main() -> int:
     parser.add_argument("--timeout", type=int, default=1800)
     args = parser.parse_args()
     config = ConversionConfig(markdown=args.markdown, output=args.output,
-        template=args.template, python=Path(sys.executable), pandoc=args.pandoc,
+        template=args.template, format_spec=args.format_spec, python=Path(sys.executable), pandoc=args.pandoc,
         convert_formulas=not args.no_formulas, add_numbers=not (args.no_numbers or args.no_formulas),
         number_format=args.number_format, create_visio=args.visio,
         auto_start_word=not args.no_auto_word, overwrite=args.force,

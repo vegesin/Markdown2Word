@@ -1,0 +1,448 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "base_profile": {
+      "const": "m2w-default@1"
+    },
+    "page": {
+      "type": "object",
+      "properties": {
+        "size": {
+          "enum": [
+            "A4",
+            "Letter"
+          ]
+        },
+        "orientation": {
+          "enum": [
+            "portrait",
+            "landscape"
+          ]
+        },
+        "margins_mm": {
+          "type": "object",
+          "properties": {
+            "top": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "bottom": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "left": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "right": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "styles": {
+      "type": "object",
+      "properties": {
+        "body": {
+          "$ref": "#/$defs/style"
+        },
+        "first_paragraph": {
+          "$ref": "#/$defs/style"
+        },
+        "figure_caption": {
+          "$ref": "#/$defs/style"
+        },
+        "table_caption": {
+          "$ref": "#/$defs/style"
+        },
+        "table_body": {
+          "$ref": "#/$defs/style"
+        },
+        "table_header": {
+          "$ref": "#/$defs/style"
+        },
+        "code": {
+          "$ref": "#/$defs/style"
+        },
+        "quote": {
+          "$ref": "#/$defs/style"
+        },
+        "equation": {
+          "$ref": "#/$defs/style"
+        },
+        "heading_1": {
+          "$ref": "#/$defs/style"
+        },
+        "heading_2": {
+          "$ref": "#/$defs/style"
+        },
+        "heading_3": {
+          "$ref": "#/$defs/style"
+        },
+        "heading_4": {
+          "$ref": "#/$defs/style"
+        },
+        "heading_5": {
+          "$ref": "#/$defs/style"
+        },
+        "heading_6": {
+          "$ref": "#/$defs/style"
+        },
+        "heading_7": {
+          "$ref": "#/$defs/style"
+        },
+        "heading_8": {
+          "$ref": "#/$defs/style"
+        },
+        "heading_9": {
+          "$ref": "#/$defs/style"
+        }
+      },
+      "additionalProperties": false
+    },
+    "headings": {
+      "type": "object",
+      "properties": {
+        "numbering": {
+          "enum": [
+            "none",
+            "decimal"
+          ]
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9
+        }
+      },
+      "additionalProperties": false
+    },
+    "table": {
+      "type": "object",
+      "properties": {
+        "borders": {
+          "enum": [
+            "three_line",
+            "grid",
+            "none"
+          ]
+        },
+        "repeat_header": {
+          "type": "boolean"
+        },
+        "cell_margin_mm": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 10
+        }
+      },
+      "additionalProperties": false
+    },
+    "captions": {
+      "type": "object",
+      "properties": {
+        "figure": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "position": {
+              "enum": [
+                "below"
+              ]
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "scope": {
+              "enum": [
+                "document"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "table": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "position": {
+              "enum": [
+                "above"
+              ]
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "scope": {
+              "enum": [
+                "document"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "equations": {
+      "type": "object",
+      "properties": {
+        "display_min_pt": {
+          "type": "number",
+          "minimum": 12,
+          "maximum": 200
+        },
+        "inline_min_pt": {
+          "type": "number",
+          "minimum": 12,
+          "maximum": 200
+        },
+        "numbering": {
+          "enum": [
+            "none",
+            "Simple",
+            "ChapterDash",
+            "ChapterDot"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "toc": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9
+        }
+      },
+      "additionalProperties": false
+    },
+    "header_footer": {
+      "type": "object",
+      "properties": {
+        "header_text": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "page_number": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "hyperlink_color": {
+      "type": "string",
+      "pattern": "^[0-9A-Fa-f]{6}$"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "name"
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "style": {
+      "type": "object",
+      "properties": {
+        "based_on": {
+          "enum": [
+            "body",
+            "first_paragraph",
+            "figure_caption",
+            "table_caption",
+            "table_body",
+            "table_header",
+            "code",
+            "quote",
+            "equation",
+            "heading_1",
+            "heading_2",
+            "heading_3",
+            "heading_4",
+            "heading_5",
+            "heading_6",
+            "heading_7",
+            "heading_8",
+            "heading_9"
+          ]
+        },
+        "font": {
+          "type": "object",
+          "properties": {
+            "east_asia": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "latin": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "size_pt": {
+              "type": "number",
+              "minimum": 4,
+              "maximum": 96,
+              "multipleOf": 0.5
+            },
+            "bold": {
+              "type": "boolean"
+            },
+            "italic": {
+              "type": "boolean"
+            },
+            "color": {
+              "type": "string",
+              "pattern": "^[0-9A-Fa-f]{6}$"
+            }
+          },
+          "additionalProperties": false
+        },
+        "paragraph": {
+          "type": "object",
+          "properties": {
+            "alignment": {
+              "enum": [
+                "left",
+                "center",
+                "right",
+                "justify"
+              ]
+            },
+            "first_line_indent": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "number",
+                  "minimum": -20,
+                  "maximum": 100
+                },
+                "unit": {
+                  "enum": [
+                    "char",
+                    "pt"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "value",
+                "unit"
+              ]
+            },
+            "line_spacing": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "mode": {
+                      "enum": [
+                        "single"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "mode"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "mode": {
+                      "enum": [
+                        "multiple"
+                      ]
+                    },
+                    "value": {
+                      "type": "number",
+                      "minimum": 0.5,
+                      "maximum": 10
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "mode",
+                    "value"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "mode": {
+                      "enum": [
+                        "exact",
+                        "at_least"
+                      ]
+                    },
+                    "value": {
+                      "type": "number",
+                      "minimum": 1,
+                      "maximum": 200
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "mode",
+                    "value"
+                  ]
+                }
+              ]
+            },
+            "space_before_pt": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 200
+            },
+            "space_after_pt": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 200
+            },
+            "keep_with_next": {
+              "type": "boolean"
+            },
+            "keep_together": {
+              "type": "boolean"
+            },
+            "page_break_before": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

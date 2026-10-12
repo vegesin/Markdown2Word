@@ -1,2 +1,7 @@
-recursive-include src/markdown2word/backends *.ps1 *.docx
-recursive-include src/markdown2word/gui/assets *.html *.css *.js
+recursive-include src/backends *.ps1 *.docx
+recursive-include src/gui/assets *.html *.css *.js
+recursive-include src/formatting *.json
+recursive-include src/requirements *.md
+recursive-include tests *.py *.cjs *.md *.json *.docx
+recursive-include docs *.md
+include run_gui.py package.json package-lock.json

@@ -8,8 +8,9 @@ import threading
 from collections import deque
 from dataclasses import fields
 from pathlib import Path
-from .. import __version__
-from ..core.pipeline import (
+from core.version import __version__
+from .template_api import TemplateApi
+from core.pipeline import (
     BACKEND_ROOT, NUMBER_FORMATS, ConversionConfig, PipelineRunner,
     find_pandoc, find_powershell, find_python, validate,
 )
@@ -18,9 +19,10 @@ from ..core.pipeline import (
 def default_settings() -> dict:
     config = ConversionConfig(markdown=Path('.'), output=Path('.'))
     result = {field.name: getattr(config, field.name) for field in fields(config)
-              if field.name not in {'markdown', 'output', 'template', 'python', 'pandoc'}}
-    return {**result, 'template': '', 'python': str(find_python()),
-            'pandoc': str(find_pandoc()), 'dark_mode': False}
+              if field.name not in {'markdown', 'output', 'template', 'format_spec', 'python', 'pandoc'}}
+    return {**result, 'template': '', 'format_spec': '', 'python': str(find_python()),
+            'pandoc': str(find_pandoc()), 'dark_mode': False,
+            'ai_base_url':'', 'ai_model':'', 'ai_key_env':'M2W_AI_API_KEY', 'ai_json_mode':False}
 
 
 def normalize_settings(data: object, defaults: dict) -> dict:
@@ -58,10 +60,10 @@ def make_config(data: dict, defaults: dict) -> ConversionConfig:
     except (ValueError, TypeError, OverflowError) as exc:
         raise ValueError('等待超时必须是 30～86400 之间的整数。') from exc
     values = {field.name: options[field.name] for field in fields(ConversionConfig)
-              if field.name in options and field.name not in {'template', 'python', 'pandoc'}}
+              if field.name in options and field.name not in {'template', 'format_spec', 'python', 'pandoc'}}
     values['stage_timeout'] = timeout
     values['add_numbers'] = options['convert_formulas'] and options['add_numbers']
-    for key in ('markdown', 'output', 'template', 'python', 'pandoc'):
+    for key in ('markdown', 'output', 'template', 'format_spec', 'python', 'pandoc'):
         raw = data.get(key, options.get(key, ''))
         if not isinstance(raw, str):
             raise ValueError(f'{key} 路径必须是文本。')
@@ -69,7 +71,7 @@ def make_config(data: dict, defaults: dict) -> ConversionConfig:
     return ConversionConfig(**values)
 
 
-class DesktopApi:
+class DesktopApi(TemplateApi):
     def __init__(self, *, settings_path: Path | None = None, runner_factory=PipelineRunner):
         self._lock = threading.RLock()
         self._window = None
@@ -94,6 +96,7 @@ class DesktopApi:
         self._progress_span = 100
         self._state = {'state': 'idle', 'status': '准备好开始转换', 'progress': 0,
                        'error': '', 'warnings': [], 'output': '', 'close_requested': False}
+        self._init_templates()
 
     def bootstrap(self) -> dict:
         with self._lock:
@@ -115,6 +118,9 @@ class DesktopApi:
     def pick_file(self, kind: str, current: str = '') -> dict:
         import webview
         types = {'markdown': ('Markdown (*.md;*.markdown)',),
+                 'requirements': ('格式要求 (*.txt;*.md;*.docx;*.json)',),
+                 'format_spec': ('格式协议 (*.json)',),
+                 'draft_output': ('规范草稿 (*.json)',),
                  'template': ('Word 模板 (*.docx;*.dotx;*.docm)',),
                  'output': ('Word 文档 (*.docx)',),
                  'python': ('Python (python.exe)',), 'pandoc': ('Pandoc (pandoc.exe)',)}
@@ -123,15 +129,17 @@ class DesktopApi:
         try:
             path = Path(current) if current else Path.home()
             selected = self._window.create_file_dialog(
-                webview.FileDialog.SAVE if kind == 'output' else webview.FileDialog.OPEN,
+                webview.FileDialog.SAVE if kind in {'output','draft_output'} else webview.FileDialog.OPEN,
                 directory=str(path if path.is_dir() else path.parent),
-                save_filename=path.name if kind == 'output' and current else 'output.docx',
+                save_filename=path.name if kind in {'output','draft_output'} and current else ('draft.json' if kind=='draft_output' else 'output.docx'),
                 file_types=types[kind] + ('所有文件 (*.*)',))
             if not selected:
                 return {'ok': True, 'path': None}
             path = Path(selected[0])
             if kind == 'output' and path.suffix.lower() != '.docx':
                 path = path.with_suffix('.docx')
+            if kind == 'draft_output' and path.suffix.lower() != '.json':
+                path = path.with_suffix('.json')
             return {'ok': True, 'path': str(path)}
         except Exception as exc:
             return {'ok': False, 'error': str(exc)}
@@ -324,6 +332,8 @@ class DesktopApi:
                 return {'ok': True}
             self._closing = True
             if self._busy():
+                if self._state['state'] == 'templating':
+                    self._template_cancel.set()
                 if self._state['state'] in {'running', 'cancelling'}:
                     self._runner.cancel()
                 self._state.update(state='cancelling', status='正在清理，完成后退出…')

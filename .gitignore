@@ -1,6 +1,6 @@
 *.docx
 *.doc
-!src/markdown2word/backends/stage1/assets/default-template.docx
+!src/backends/stage1/assets/default-template.docx
 __pycache__/
 node_modules/
 *.py[cod]
@@ -15,5 +15,6 @@ docs/old/**
 .vscode/**
 **.txt
 
-tests/**
 test_doc/**
+
+!tests/fixtures/*.docx

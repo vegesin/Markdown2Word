@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "name": "技术报告示例",
+  "page": {"size": "A4", "margins_mm": {"left": 30}},
+  "styles": {
+    "body": {"font": {"east_asia": "宋体", "latin": "Times New Roman", "size_pt": 12}},
+    "table_body": {"font": {"size_pt": 10.5}, "paragraph": {"alignment": "center"}},
+    "table_header": {"font": {"east_asia": "黑体", "size_pt": 10.5}, "paragraph": {"alignment": "center"}}
+  },
+  "headings": {"numbering": "decimal", "depth": 3},
+  "table": {"borders": "three_line"},
+  "toc": {"enabled": true, "depth": 3},
+  "header_footer": {"header_text": "技术报告", "page_number": true},
+  "equations": {"numbering": "none"}
+}

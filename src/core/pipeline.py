@@ -39,6 +39,7 @@ class ConversionConfig:
     markdown: Path
     output: Path
     template: Path | None = None
+    format_spec: Path | None = None
     python: Path | None = None
     pandoc: Path | None = None
     convert_formulas: bool = True
@@ -105,6 +106,22 @@ def validate(config: ConversionConfig) -> ConversionConfig:
     markdown = config.markdown.expanduser().resolve()
     output = normalize_output(config.output.expanduser()).resolve()
     template = config.template.expanduser().resolve() if config.template else None
+    format_spec = config.format_spec.expanduser().resolve() if config.format_spec else None
+    if format_spec:
+        from formatting.spec import load_spec
+        if template:
+            raise ConfigurationError('格式协议与外部 Word 模板不能同时选择。')
+        if not format_spec.is_file():
+            raise ConfigurationError('格式协议不存在。')
+        spec = load_spec(format_spec)
+        if config.convert_formulas:
+            equation = spec['styles']['equation']['paragraph']
+            if equation['alignment'] != 'center' or equation['first_line_indent']['value'] != 0:
+                raise ConfigurationError('MathType 后端目前要求公式居中且首行不缩进。')
+        numbering = spec['equations']['numbering']
+        if numbering != 'none' and not config.convert_formulas:
+            raise ConfigurationError('此协议要求 MathType 编号，请选择 MathType 模式。')
+        config = replace(config, add_numbers=numbering != 'none', number_format=numbering if numbering != 'none' else 'Simple')
     effective_template = template or (STAGE1_BACKEND / "assets" / "default-template.docx").resolve()
     python = (config.python or find_python()).expanduser().resolve()
     pandoc = (config.pandoc or find_pandoc()).expanduser().resolve()
@@ -119,7 +136,7 @@ def validate(config: ConversionConfig) -> ConversionConfig:
         raise ConfigurationError(f"未找到 Pandoc：{pandoc}")
     if config.number_format not in NUMBER_FORMATS.values():
         raise ConfigurationError(f"不支持的公式编号格式：{config.number_format}")
-    if output in {markdown, effective_template}:
+    if output in {markdown, effective_template, format_spec}:
         raise ConfigurationError("输出文件不能覆盖 Markdown 原文或 Word 模板。")
     if output.exists() and not output.is_file():
         raise ConfigurationError(f"输出路径不是文件：{output}")
@@ -136,6 +153,7 @@ def validate(config: ConversionConfig) -> ConversionConfig:
         markdown=markdown,
         output=output,
         template=template,
+        format_spec=format_spec,
         python=python,
         pandoc=pandoc,
         convert_formulas=config.convert_formulas,
@@ -158,6 +176,8 @@ def build_commands(config: ConversionConfig) -> list[list[str]]:
     if config.template:
         command.append(str(config.template))
     command += [str(config.intermediate_path), "--pandoc", str(config.pandoc)]
+    if config.format_spec:
+        command += ['--format-spec', str(config.format_spec)]
     if not config.convert_formulas:
         command.append('--native-math')
     if config.preserve_table_style:
@@ -176,6 +196,13 @@ def build_commands(config: ConversionConfig) -> list[list[str]]:
             command += ["-AddEquationNumbers", "-EquationNumberFormat", config.number_format]
         if config.auto_start_word:
             command.append("-StartWordIfNeeded")
+        if config.format_spec:
+            from formatting.spec import load_spec
+            spec = load_spec(config.format_spec)
+            paragraph = spec['styles']['equation']['paragraph']
+            command += ['-DisplayMinPt', str(spec['equations']['display_min_pt']),
+                        '-DisplaySpaceBeforePt', str(paragraph['space_before_pt']),
+                        '-DisplaySpaceAfterPt', str(paragraph['space_after_pt'])]
         commands.append(command)
     if config.create_visio:
         commands.append(common + [
@@ -449,7 +476,7 @@ class PipelineRunner:
         def digest(path):
             return hashlib.sha256(path.read_bytes()).hexdigest()
         template = config.template or STAGE1_BACKEND / "assets" / "default-template.docx"
-        source_hashes = (digest(config.markdown), digest(template))
+        source_hashes = (digest(config.markdown), digest(template), digest(config.format_spec) if config.format_spec else None)
         with self.log_path.open('w', encoding='utf-8') as logfile:
             def record(message):
                 logfile.write(message)
@@ -461,6 +488,11 @@ class PipelineRunner:
                     workspace = Path(directory)
                     self._cancel_path = workspace / 'cancel.request'
                     work = replace(config, output=workspace / 'result.docx', overwrite=False)
+                    if config.format_spec:
+                        from formatting.spec import load_spec, dump_json
+                        snapshot = workspace / 'format-spec.json'
+                        dump_json(snapshot, load_spec(config.format_spec))
+                        work = replace(work, format_spec=snapshot)
                     if self.cancelled:
                         return 130
                     code = self._execute([str(config.python), '-c', 'import docx, lxml'], config, log, event, logfile)
@@ -491,7 +523,11 @@ class PipelineRunner:
                             return code
                     if not work.output.is_file():
                         raise RuntimeError('转换后没有生成有效的 Word 文档。')
-                    if (digest(config.markdown), digest(template)) != source_hashes:
+                    if config.format_spec:
+                        from docx import Document
+                        from formatting.audit import audit_format
+                        audit_format(Document(work.output), load_spec(snapshot))
+                    if (digest(config.markdown), digest(template), digest(config.format_spec) if config.format_spec else None) != source_hashes:
                         raise ConfigurationError('转换期间 Markdown 或模板发生变化，请重新开始。')
                     self.output_path = self._publish_result(work.output, config.output, config.overwrite, record, event)
                     if self.output_path is None:

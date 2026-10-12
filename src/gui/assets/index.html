@@ -31,8 +31,37 @@
             <label class="file-card" for="markdown"><span class="file-icon"><svg><use href="#i-doc"/></svg></span><span class="file-info"><strong id="source-name">添加 Markdown 文档</strong><span id="source-note">选择 .md 或 .markdown 文件</span></span><button type="button" class="secondary" data-pick="markdown">选择文件</button></label>
             <div class="field"><label for="markdown">源文件路径</label><input id="markdown" type="text" placeholder="选择文件，或粘贴完整路径" autocomplete="off" spellcheck="false"></div>
             <div class="field"><label for="template">Word 模板 <span class="optional">可选 · 留空使用内置模板</span></label><div class="input-action"><input id="template" placeholder="使用内置模板" autocomplete="off" spellcheck="false"><button type="button" data-pick="template" class="quiet">浏览</button></div></div>
+            <div class="field"><label for="format_spec">格式协议 <span class="optional">与 Word 模板二选一</span></label><div class="input-action"><input id="format_spec" placeholder="选择模板项目中的 spec.json" autocomplete="off" spellcheck="false"><button type="button" data-pick="format_spec" class="quiet">浏览</button></div><p class="help">选择协议后，表格、题注和公式编号由协议控制；缺省字段使用版本化默认值。</p></div>
             <div class="field"><label for="output">保存位置</label><div class="input-action"><input id="output" placeholder="选择源文件后自动填写" autocomplete="off" spellcheck="false"><button type="button" data-pick="output" class="quiet">另存为</button></div></div>
           </fieldset>
+        </section>
+        <section class="card" aria-labelledby="template-title">
+          <div class="section-title"><h2 id="template-title">创建模板</h2><span class="subtle">格式要求 → 规范 → Word 模板</span></div>
+          <fieldset id="template-fields">
+            <div class="field"><label for="requirements">格式要求或协议草稿</label><div class="input-action"><input id="requirements" placeholder="TXT、MD、DOCX 或 JSON"><button type="button" data-pick="requirements" class="quiet">浏览</button></div></div>
+            <button id="import-requirements" type="button" class="secondary">导入并本地解析</button>
+            <p class="help">本地规则只识别明确的常见格式。未识别内容和冲突会保留在 issues 中，生成前需处理。</p>
+            <details><summary>AI 对话配置</summary>
+              <div class="field"><label for="ai_base_url">API 基础地址</label><input id="ai_base_url" placeholder="https://服务地址/v1" autocomplete="off"></div>
+              <div class="field"><label for="ai_model">模型名称</label><input id="ai_model" autocomplete="off"></div>
+              <div class="field"><label for="ai_key_env">API Key 环境变量名</label><input id="ai_key_env" value="M2W_AI_API_KEY" autocomplete="off"></div>
+              <div class="field"><label for="ai-key">或输入本次会话的 API Key</label><input id="ai-key" type="password" autocomplete="off" placeholder="不写入配置文件"></div>
+              <label><input id="ai_json_mode" type="checkbox"> 服务支持 JSON 模式</label>
+              <p class="help">使用 Chat Completions 兼容接口。点击发送会将导入的格式要求、当前草稿及本次对话发送到上述服务。普通 Markdown 转换不调用 AI。</p>
+            </details>
+            <div class="field"><label for="ai-message">发给 AI 的要求</label><textarea id="ai-message" rows="3">请完整解析导入的格式要求，生成符合协议的规范草稿，并指出冲突和不支持的要求。</textarea></div>
+            <button id="ai-send" type="button" class="secondary">发送给 AI</button>
+            <pre id="ai-conversation" class="template-report" aria-live="polite"></pre>
+            <div class="field"><label for="spec-editor">规范草稿 JSON <span class="optional">可直接编辑</span></label><textarea id="spec-editor" rows="16" spellcheck="false">{"spec":{"schema_version":"1.0","name":"我的模板"},"evidence":[],"issues":[]}</textarea></div>
+            <button id="validate-template" type="button" class="secondary">校验并查看完整规范</button>
+            <button id="save-draft" type="button" class="secondary">保存协议草稿</button>
+            <details><summary>完整规范与问题</summary><pre id="spec-report" class="template-report"></pre></details>
+            <div class="field"><label for="template-output">新模板目录</label><input id="template-output" placeholder="例如 E:\文档模板\技术报告（目录不能已存在）"></div>
+            <label><input id="template-reviewed" type="checkbox"> 我已核对要求、协议、默认值及问题清单</label>
+            <button id="generate-template" type="button" class="primary">生成模板和样张</button>
+          </fieldset>
+          <button id="cancel-template" type="button" class="secondary" hidden>取消模板任务</button>
+          <p id="template-result" class="help" aria-live="polite"></p>
         </section>
         <section class="card" aria-labelledby="options-title">
           <div class="section-title"><span class="step">02</span><h2 id="options-title">转换偏好</h2></div>

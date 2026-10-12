@@ -1,6 +1,6 @@
 {
   "name": "markdown2word-ui-tests",
   "private": true,
-  "scripts": {"test": "node --test tests/frontend.test.cjs", "check": "node --check src/markdown2word/gui/assets/app.js"},
+  "scripts": {"test": "node --test tests/frontend.test.cjs", "check": "node --check src/gui/assets/app.js"},
   "devDependencies": {"jsdom": "^26.1.0"}
 }

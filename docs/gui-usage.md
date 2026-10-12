@@ -1,5 +1,13 @@
 # GUI 操作说明
 
+## 创建格式模板
+
+“创建模板”支持导入 TXT、Markdown、DOCX 格式要求或 JSON 规范。先本地解析，或填写 AI 地址、模型和 Key 后发送对话；每次 AI 回复都会更新完整 JSON 草稿。API Key 不保存到设置文件。发送内容包括格式要求、草稿及本次对话，只有点击发送才调用外部服务。
+
+编辑 `spec` 中的规则，核对 `evidence` 的原文来源并处理 `issues`；有未解决问题时不能生成。点击“校验并查看完整规范”可查看展开默认值后的规则。“保存协议草稿”允许保存尚未解决的问题，方便下次继续编辑。填写尚不存在的目录，确认核对后生成模板及样张；生成成功会自动选中 `spec.json` 用于后续转换。
+
+选择格式协议时，“Word 模板”应留空，图表题注、表格样式和公式编号由协议控制。普通用户可先使用仓库 `tests/fixtures` 示例；字段含义和本版限制见 [格式规范与模板生成](format-spec.md)。模板/AI 任务期间禁用重复提交，取消等待当前请求返回或超时；关闭运行中的窗口仍会等待清理。
+
 运行 `python run_gui.py` 或安装后执行 `markdown2word`。需要 pywebview 和 Microsoft Edge WebView2 Runtime；无需 Tkinter、Node.js 或前端开发服务器。
 
 若窗口启动失败，弹窗会显示具体原因、当前 Python 和启动日志位置：`%LOCALAPPDATA%\Markdown2Word\logs\startup.log`。只有确认初始化后的渲染器不可用时才提示检查 WebView2，其他启动异常不会统一归为运行时缺失。

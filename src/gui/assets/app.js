@@ -5,7 +5,7 @@
     const node = $(id);
     if (node.textContent !== value) node.textContent = value;
   }
-  const settingKeys = ['template','python','pandoc','convert_formulas','add_numbers','number_format','create_visio','auto_start_word','overwrite','preserve_table_style','auto_captions','reference_superscript','stage_timeout','dark_mode'];
+  const settingKeys = ['template','format_spec','ai_base_url','ai_model','ai_key_env','ai_json_mode','python','pandoc','convert_formulas','add_numbers','number_format','create_visio','auto_start_word','overwrite','preserve_table_style','auto_captions','reference_superscript','stage_timeout','dark_mode'];
   let api, ready = false, submitting = false, busy = false, mode = true, dark = false;
   let after = 0, generation = -1, autoOutput = '', toastTimer, saveTimer, logText = '', previousState = '', suppressClosePrompt = false;
   function toast(message) {
@@ -32,7 +32,9 @@
     document.querySelectorAll('[data-mode]').forEach(button => button.setAttribute('aria-pressed', String((button.dataset.mode === 'mathtype') === mode)));
     $('number-options').hidden = !mode;
     $('mode-note').textContent = mode ? '需要 Microsoft Word 和 MathType，转换期间请勿操作 Office。' : '可编辑的 Word 原生公式，无需启动 Office。此模式暂不提供右编号。';
-    $('number_format').disabled = busy || !$('add_numbers').checked || !mode;
+    const protocol = !!$('format_spec').value.trim();
+    $('number_format').disabled = busy || protocol || !$('add_numbers').checked || !mode;
+    for (const id of ['auto_captions','preserve_table_style','add_numbers']) $(id).disabled = busy || protocol;
   }
   function updateSource() {
     const path = $('markdown').value.trim(), output = $('output');
@@ -46,7 +48,7 @@
   }
   function freeze(value) {
     busy = value;
-    for (const id of ['files-fields','option-fields','advanced-fields']) $(id).disabled = value;
+    for (const id of ['files-fields','template-fields','option-fields','advanced-fields']) $(id).disabled = value;
     $('start').disabled = !ready || value || submitting;
     $('start').firstChild.textContent = value ? '正在处理' : '开始转换';
     updateMode();
@@ -76,14 +78,15 @@
     after = snapshot.last_seq;
     freeze(snapshot.busy || submitting);
     $('cancel').hidden = !['running','cancelling'].includes(snapshot.state);
+    $('cancel-template').hidden = snapshot.state !== 'templating';
     $('cancel').disabled = snapshot.state === 'cancelling';
     $('status-text').textContent = snapshot.status;
     $('status-dot').dataset.state = snapshot.state;
-    $('status-note').textContent = snapshot.busy ? (mode ? '转换期间请勿操作 Office' : '正在本机处理文档') : '文件在本机处理';
+    $('status-note').textContent = snapshot.state === 'templating' ? '正在处理格式要求' : (snapshot.busy ? (mode ? '转换期间请勿操作 Office' : '正在本机处理文档') : '文档转换在本机处理');
     $('progress-fill').style.width = `${snapshot.progress}%`;
     $('progress-track').setAttribute('aria-valuenow', String(Math.round(snapshot.progress)));
     $('result-card').dataset.state = snapshot.state;
-    const titles = {idle:'准备好，即可开始',running:'正在整理你的文档',cancelling:'正在清理当前任务',diagnosing:'检查运行环境',success:'文档已准备就绪',warning:'已完成，请留意提示',error:'还差一步',cancelled:'转换已取消'};
+    const titles = {templating:'正在处理模板',idle:'准备好，即可开始',running:'正在整理你的文档',cancelling:'正在清理当前任务',diagnosing:'检查运行环境',success:'文档已准备就绪',warning:'已完成，请留意提示',error:'还差一步',cancelled:'转换已取消'};
     $('result-title').textContent = titles[snapshot.state] || snapshot.status;
     const descriptions = {idle:'选择文档与转换偏好，剩下的交给我们。',running:snapshot.status,cancelling:'等待后台退出，已有成品保持不变。',diagnosing:'检查 Python、Pandoc 和 Office 注册信息。',success:'图片、公式与排版，已汇入一份 Word 文档。',warning:'已生成 Word 文档，下方列出了需要检查的内容。',error:'查看下方原因，调整后可以重新开始。',cancelled:'临时文件已清理，可以开始新的转换。'};
     $('result-description').textContent = snapshot.state === 'idle' && logText ? snapshot.status : descriptions[snapshot.state] || '';
@@ -99,7 +102,7 @@
     if (snapshot.close_requested && !suppressClosePrompt && !$('close-dialog').open) $('close-dialog').showModal();
   }
   async function poll() {
-    try { render(await call('poll', after)); }
+    try { render(await call('poll', after)); await pollTemplate(); }
     catch (error) { $('status-text').textContent = '连接暂时中断，正在重试…'; }
     setTimeout(poll, busy ? 180 : 450);
   }
@@ -125,6 +128,50 @@
     if (busy) return; mode = button.dataset.mode === 'mathtype'; updateMode(); scheduleSave();
   }));
   $('markdown').addEventListener('input', updateSource);
+  let templateRevision = 0;
+  async function pollTemplate() {
+    // The method guard also supports older desktop hosts during UI tests.
+    if (!api.template_snapshot) return;
+    const result = await call('template_snapshot');
+    if (result.revision === templateRevision) return;
+    templateRevision = result.revision;
+    if (result.draft && !result.error) { $('spec-editor').value = result.draft; $('template-reviewed').checked = false; }
+    $('ai-conversation').textContent = result.messages.join('\n\n');
+    $('template-result').textContent = result.error || (result.project ? `已保存：${result.project}。请打开 preview.docx 检查样张。` : '草稿已更新，请检查并处理 issues 中的问题。');
+    if (result.project) {
+      $('format_spec').value = result.project + '/spec.json';
+      $('template').value = '';
+      scheduleSave();
+    }
+  }
+  async function templateAction(name, ...args) {
+    if (busy || submitting) return;
+    submitting = true; freeze(true);
+    try { await call(name, ...args); }
+    catch (error) { toast(error.message); }
+    finally { submitting = false; render(await call('poll', after)); }
+  }
+  $('import-requirements').addEventListener('click', () => templateAction('import_requirements', $('requirements').value.trim()));
+  $('ai-send').addEventListener('click', () => templateAction('template_chat', {
+    draft:$('spec-editor').value, message:$('ai-message').value, api_key:$('ai-key').value,
+    config:{base_url:$('ai_base_url').value, model:$('ai_model').value, api_key_env:$('ai_key_env').value, json_mode:$('ai_json_mode').checked, timeout:60}
+  }));
+  $('validate-template').addEventListener('click', async () => {
+    try {
+      const result = await call('validate_template', $('spec-editor').value);
+      $('spec-report').textContent = JSON.stringify(result.issues,null,2) + '\n\n' + result.resolved;
+      $('spec-report').parentElement.open = true;
+    } catch (error) { toast(error.message); }
+  });
+  $('generate-template').addEventListener('click', () => templateAction('generate_template', $('spec-editor').value, $('template-output').value.trim(), $('template-reviewed').checked));
+  $('save-draft').addEventListener('click', async () => {
+    try {
+      const selection = await call('pick_file','draft_output','');
+      if (selection.path) { await call('save_template_draft',$('spec-editor').value,selection.path); toast('协议草稿已保存。'); }
+    } catch (error) { toast(error.message); }
+  });
+  $('spec-editor').addEventListener('input', () => { $('template-reviewed').checked = false; });
+  $('cancel-template').addEventListener('click', () => call('cancel_template').catch(error => toast(error.message)));
   document.querySelectorAll('input, select').forEach(element => element.addEventListener('change', () => { updateMode(); scheduleSave(); }));
   $('theme').addEventListener('click', () => { dark = !dark; document.documentElement.dataset.theme = dark ? 'dark' : 'light'; scheduleSave(); });
   $('start').addEventListener('click', () => startTask('start_conversion'));
@@ -149,7 +196,7 @@
       for (const key of settingKeys) {
         const element = $(key); if (!element) continue;
         if (element.type === 'checkbox') element.checked = initial.settings[key];
-        else element.value = initial.settings[key];
+        else element.value = initial.settings[key] ?? '';
       }
       document.documentElement.dataset.theme = dark ? 'dark' : 'light';
       ready = true; updateMode(); freeze(false); poll();
